@@ -635,4 +635,13 @@ Android arm64 support is under development in
 [PR #93](https://github.com/chrissotraidis/bluewake/pull/93). It is not yet a
 current build path, so its proposed artifacts are not included above.
 
+The build paths are also test entry points. Direct Python contracts protect
+source generation and packaging rules; Linux and Windows CI fetch the pinned
+public runtime, compile explicit source-only targets, run their CTest graphs,
+and reject unexpected personal modules. Disc-free package fixtures then check
+container and ABI behavior without claiming that a playable build was tested.
+See [test families](Testing.md#test-families),
+[platform entry points](Testing.md#platform-entry-points), and
+[continuous integration](Testing.md#continuous-integration).
+
 Continue to the runtime [high-level view](Runtime.md#high-level-view).

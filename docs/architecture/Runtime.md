@@ -183,5 +183,13 @@ pending callbacks or interrupts, and resumes at the guest program counter.
 The sequence is conceptual: host hooks access guest state only at relevant
 integration points, not on every dispatch.
 
+Testing follows the same boundaries. Source-only component tests isolate host,
+guest-state, service, and renderer contracts with synthetic data; integration
+tests link those components through a platform graph; private module and
+gameplay runs establish that translated code reaches the expected boundaries.
+The evidence levels are related but not interchangeable. See the
+[end-to-end test view](Testing.md#end-to-end-view) and
+[evidence levels](Testing.md#evidence-levels).
+
 Return to the [architecture overview](Overview.md), or review how these runtime
 artifacts are produced in the [build architecture](Build.md).

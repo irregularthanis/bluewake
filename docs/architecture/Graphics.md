@@ -824,4 +824,13 @@ rebuilt from front-end and guest data.
 Lifecycle entry points are defined by the [Aurora backend ABI](https://github.com/chrissotraidis/RecompCore/blob/f647d03d3886eb2357950190fe1cba3fa3d10242/GXRuntime/include/gxruntime/aurora_backend.h)
 and coordinated by the [BlueWake host](../../runtime/host/src/main.c).
 
+Graphics evidence also spans layers. Synthetic Aurora/gxcore fixtures protect
+parsing, interpolation, shared state, worker identity, shutdown, and selected
+pixel contracts; platform integration tests prove the linked backend builds and
+runs; GPU readback, complete scenes, resizing, presentation, and visual quality
+still require the relevant backend or hardware. See
+[runtime and renderer tests](Testing.md#runtime-and-renderer-tests),
+[platform entry points](Testing.md#platform-entry-points), and
+[private and hardware validation](Testing.md#private-and-hardware-validation).
+
 Return to the runtime [high-level view](Runtime.md#high-level-view).

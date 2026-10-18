@@ -292,6 +292,15 @@ close storage and release resources`"]
 | Rebudget | Select the next device, decrementer, or interrupt boundary | Execution cannot skip a required event |
 | Shut down | Stop adapters and close mutable storage whose accepted writes were already persisted | No worker retains invalid guest resources, and durable data remains available to the next run |
 
+Service tests use synthetic clocks, memory, callbacks, packets, files, and
+device events to make ordering and persistence failures deterministic. Tests
+that cross process or filesystem boundaries use owned temporary paths and
+timeouts; real cards, saves, discs, controllers, and audio hardware remain
+private or device-backed evidence. See
+[compiled component tests](Testing.md#compiled-component-tests),
+[packaging and process tests](Testing.md#packaging-and-process-tests), and
+[private and hardware validation](Testing.md#private-and-hardware-validation).
+
 Graphics-related GX services continue in the [graphics stack](Graphics.md).
 
 Return to the runtime [high-level view](Runtime.md#high-level-view).

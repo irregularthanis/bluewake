@@ -378,4 +378,13 @@ CPU storage.
 | Finish pending settings and diagnostic writes, then close mutable storage | Player data written during the run remains available to the next launch | [Card runtime](../../runtime/host/src/card_runtime.c), [SRAM runtime](../../runtime/host/src/ipl_sram.c) |
 | Tear down services and shared storage | Native resources are released before returning to the platform layer | [Host shutdown](../../runtime/host/src/main.c#L16364-L16373) |
 
+The host is the broadest compiled source-only test graph. Focused executables
+exercise scheduling, persistence, input, audio, shutdown, and renderer-facing
+contracts; conditional tests add a local composite module or optional DSP
+adapter; platform CMake entry points prove that shared behavior still compiles
+and runs under Linux and Windows. See
+[compiled component tests](Testing.md#compiled-component-tests),
+[generated and conditional tests](Testing.md#generated-and-conditional-tests),
+and [platform entry points](Testing.md#platform-entry-points).
+
 Return to the runtime [high-level view](Runtime.md#high-level-view).

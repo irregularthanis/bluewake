@@ -108,4 +108,12 @@ boundary?`"}
 The module's relationship with CPU storage, memory, and guest addresses is
 covered in [Guest machine state](GuestState.md).
 
+Public guard and source-contract tests can validate ABI declarations,
+dispatch preparation, native decline behavior, and synthetic CPU/RAM effects
+without a game module. Generated scheduler and native differential tests are
+conditional or manual because they consume a contributor's local translated
+module. A compiled target is therefore not proof that its private oracle ran.
+See [generated and conditional tests](Testing.md#generated-and-conditional-tests)
+and [private and hardware validation](Testing.md#private-and-hardware-validation).
+
 Return to the runtime [high-level view](Runtime.md#high-level-view).

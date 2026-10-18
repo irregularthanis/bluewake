@@ -745,6 +745,15 @@ not a claim that every exception follows an identical guest OS route.
 | Advance to the next deadline | Video, audio, DSP, disc, and controller state remain ordered | [Device synchronization](../../runtime/host/src/main.c#L5455-L5474) |
 | Publish and deliver interrupts | Guest exception state and handler PC are established at a safe boundary | [Interrupt routing](../../runtime/host/src/main.c#L3441-L3544), [delivery](../../runtime/host/src/main.c#L3078-L3234) |
 
+Guest-state tests pair narrow synthetic invariants with broader comparisons.
+Component tests cover CPU layout, aliases, cycle accounting, callbacks,
+exceptions, checkpoints, and save-state ownership; conditional generated tests
+then exercise those contracts through a local module; gameplay checkpoints
+compare complete expected regions across a repeatable route. See
+[evidence levels](Testing.md#evidence-levels),
+[fixtures and test data](Testing.md#fixtures-and-test-data), and
+[results and failure evidence](Testing.md#results-and-failure-evidence).
+
 ## Project history references
 
 These changes are useful examples of the project history behind the mechanisms
