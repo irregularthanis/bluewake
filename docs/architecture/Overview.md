@@ -164,16 +164,15 @@ entity's internals, continue to [Runtime](Runtime.md).
 
 ## Testing
 
-BlueWake's native game-thread tests separate public synthetic checks from
-private translated-module comparisons. The source-only worker-pool suite
-compiles the production scheduler without the renderer, runs each one-time
-worker configuration in a fresh process, and checks exact partitions,
-synchronous result publication, sentinels, repeated submissions, and actual
-parallel-path activation. Shared CMake registration keeps the host and Linux
-native-math guard/oracle targets aligned.
+BlueWake's tests span repository and generated-source contracts, native host
+components, GXRuntime and renderer integration, platform packaging, private
+translated modules, gameplay routes, and hardware checks. Public CI keeps game
+data out while building and running source-only Linux and Windows host suites;
+private and device-backed validation extends that evidence where synthetic
+fixtures cannot establish player-visible behavior.
 
-For the test layers, execution model, commands, result interpretation,
-sanitizer workflow, and planned qualification extensions, continue to
+For the complete test flow, registration paths, CI jobs, fixture boundaries,
+local commands, result interpretation, and extension rules, continue to
 [Testing](Testing.md).
 
 To measure these build and runtime components, identify a bottleneck, and
