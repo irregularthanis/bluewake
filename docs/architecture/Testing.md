@@ -685,8 +685,10 @@ ctest --test-dir build/native-work-pool --show-only
 **Why?** Confirm that the renderer-free graph resolves and that one-time worker
 settings became separate CTest processes.
 
-**When?** Immediately after adding or changing the harness, its CMake file, or
-worker configuration matrix; before interpreting any pass count.
+**When and where in the build?** This is the **configure** step for the
+standalone test tree, outside the application build. Run it manually after
+changing the harness, its CMake file, or worker matrix and before compiling or
+interpreting a pass count.
 
 **Output artifacts inspection and interpretation:**
 
@@ -710,8 +712,10 @@ ctest --test-dir build/native-work-pool --output-on-failure
 publication before return, untouched sentinels, 1,000 changing submissions,
 and actual parallel-path activation.
 
-**When?** After the inventory contains every expected case; repeat after any
-pool, harness, compiler, or configuration change.
+**When and where in the build?** This is the standalone tree's **compile and
+CTest** step. Run it manually before platform integration, after the inventory
+is complete, and repeat it after pool, harness, compiler, or configuration
+changes. It does not build the host or renderer.
 
 **Output artifacts inspection and interpretation:**
 
@@ -738,8 +742,11 @@ ctest --test-dir build/linux-gamethread-tests --output-on-failure \
 **Why?** Prove that shared native-math registration and the standalone pool
 suite survive the supported Linux CMake entry point and its GXRuntime linkage.
 
-**When?** After standalone success and whenever shared registration, Linux
-CMake, GXRuntime linkage, or the native-math guard changes.
+**When and where in the build?** This is the **platform integration** step:
+Linux CMake configures the host graph with regression tests enabled, the named
+test targets compile in that graph, and CTest runs after compilation but before
+packaging. Run it after standalone success and after shared CMake, GXRuntime,
+or guard changes.
 
 **Output artifacts inspection and interpretation:**
 
@@ -766,8 +773,10 @@ ctest --test-dir build/native-work-pool-sanitize --output-on-failure
 **Why?** Detect memory and undefined-behavior defects outside the functional
 assertions.
 
-**When?** After an ordinary build passes, and again after memory ownership,
-range, publication, or teardown changes.
+**When and where in the build?** This is a separate, instrumented standalone
+build tree; it is not part of the ordinary application build or current public
+CI. Run it after the unsanitized standalone suite passes and after memory
+ownership, range, publication, or teardown changes.
 
 **Output artifacts inspection and interpretation:**
 
@@ -788,8 +797,13 @@ gh pr checks 399 --repo chrissotraidis/bluewake
 **Why?** Tie Linux, Windows, audit, and attribution evidence to the pushed
 commit and CI environments.
 
-**When?** After adding the new executables to each relevant workflow's explicit
-build-target list and after every pushed implementation change.
+**When and where in the build?** GitHub Actions runs after a branch is pushed.
+The intended Linux placement is host configure, explicit test-target build,
+CTest, then packaging. The pool target is registered in the proposed Linux
+graph but is not yet in CI's explicit build list. Windows currently exercises
+the serial case only through the standalone project; it still needs Windows
+graph registration and an explicit CI build target. Check this stage after
+every implementation push and treat either missing connection as incomplete.
 
 **Output artifacts inspection and interpretation:**
 
@@ -805,9 +819,12 @@ build-target list and after every pushed implementation change.
 **What to run?**
 
 ```bash
-BLUEWAKE_NATIVE_WORKERS=0 BUILD/bluewake_native_math_test \
+cmake --build build/linux-gamethread-tests --target bluewake_native_math_test
+BLUEWAKE_NATIVE_WORKERS=0 \
+  build/linux-gamethread-tests/bluewake_native_math_test \
   REFERENCE_MODULE --candidate CANDIDATE_MODULE
-BLUEWAKE_NATIVE_WORKERS=2 BUILD/bluewake_native_math_test \
+BLUEWAKE_NATIVE_WORKERS=2 \
+  build/linux-gamethread-tests/bluewake_native_math_test \
   REFERENCE_MODULE --candidate CANDIDATE_MODULE
 ```
 
@@ -818,8 +835,11 @@ commands; do not invent a pass command before those runners exist.
 local player-owned modules, then extend correctness evidence to representative
 gameplay and devices.
 
-**When?** Only after public source-only, sanitizer, and platform checks pass;
-repeat on the candidate module and hardware being qualified.
+**When and where in the build?** The oracle is `EXCLUDE_FROM_ALL`: ordinary
+builds and public CI never compile or run it. Build its target explicitly only
+after public source-only, sanitizer, and platform checks pass, then run it
+locally against the candidate module. Later gameplay and hardware stages run
+after packaging on the device being qualified.
 
 **Output artifacts inspection and interpretation:**
 
