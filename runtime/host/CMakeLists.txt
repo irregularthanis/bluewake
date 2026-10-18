@@ -344,6 +344,8 @@ target_link_libraries(bluewake_gather_dispatch_test PRIVATE gxruntime)
 target_compile_definitions(bluewake_gather_dispatch_test PRIVATE BLUEWAKE_GATHER_PIPE=1)
 add_test(NAME bluewake_gather_dispatch_test COMMAND bluewake_gather_dispatch_test)
 
+# The native-math oracle requires a local player-owned module and remains an
+# explicit build; the synthetic guard and work-pool tests remain public-safe.
 include("${BLUEWAKE_REPO_ROOT}/cmake/native_math_tests.cmake")
 bluewake_add_native_math_tests()
 add_subdirectory(${BLUEWAKE_REPO_ROOT}/tests/native_work_pool native_work_pool_tests)
