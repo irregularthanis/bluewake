@@ -11,6 +11,10 @@
 - [Continuous integration](#continuous-integration)
 - [Fixtures and test data](#fixtures-and-test-data)
 - [Results and failure evidence](#results-and-failure-evidence)
+  - [Output artifact lifecycle](#output-artifact-lifecycle)
+  - [Artifact locations and meaning](#artifact-locations-and-meaning)
+  - [Interpreting a run](#interpreting-a-run)
+  - [Reporting results](#reporting-results)
 - [Running tests locally](#running-tests-locally)
 - [Adding or changing a test](#adding-or-changing-a-test)
 - [Private and hardware validation](#private-and-hardware-validation)
@@ -385,10 +389,104 @@ Each runner has a different result surface:
 | Packaging smoke | Audit and launch probes exit 0 | Package script, ABI report, launch output, or missing expected file |
 | Private/gameplay run | Complete expected route and comparison | Retained local logs, checkpoint differences, hashes, and platform context |
 
-Keep configuration, build, and execution results separate. If configuration
-fails, no test ran. If a target was excluded or conditional, a shorter CTest
-count may indicate missing coverage rather than success. Use `ctest --show-only`
-to record what the configured build actually registered.
+### Output artifact lifecycle
+
+Test output is produced in stages. A later artifact exists only if the earlier
+stage completed:
+
+```mermaid
+flowchart LR
+    Configure["Configure<br>graph"]
+    Cache["CMake cache<br>and log"]
+    Build["Build<br>targets"]
+    Binaries["Test<br>executables"]
+    Run["Run selected<br>tests"]
+    Results["Console and<br>CTest log"]
+    CI["CI check<br>logs"]
+    Private["Local private<br>evidence"]
+
+    Configure --> Cache --> Build --> Binaries --> Run --> Results
+    Results --> CI
+    Results --> Private
+```
+
+Configuration artifacts describe the graph CMake generated; they do not show
+that a target compiled. Test executables show that compilation and linking
+succeeded; they do not show that CTest selected or ran them. Result logs show
+what ran; they prove only the selected cases on that checkout and environment.
+
+### Artifact locations and meaning
+
+| Artifact | Usual location | How to interpret it |
+| --- | --- | --- |
+| CMake option/dependency cache | `BUILD/CMakeCache.txt` | Records resolved options and paths for that build directory. Check regression-test flags and dependency providers before comparing runs. |
+| CMake configure diagnostics | `BUILD/CMakeFiles/CMakeConfigureLog.yaml` | Explains compiler, feature, header, and library probes. A configure failure means no build or test result exists. |
+| Test executables and libraries | Generator-selected paths under `BUILD/` | Their presence proves the requested target linked. It does not prove execution; manual and conditional targets may never enter CTest. |
+| CTest inventory | Console output from `ctest --test-dir BUILD --show-only` | The authoritative registered set for that configured graph. Save the names/count when missing optional inputs can change registration. |
+| CTest summary | Console output from the run | Reports selected, passed, failed, and elapsed tests. Interpret the count together with the selection expression. |
+| Detailed CTest log | `BUILD/Testing/Temporary/LastTest.log` | Contains commands and captured output for the most recent CTest execution. A later run replaces its role as “last” evidence. |
+| CTest timing history | `BUILD/Testing/Temporary/CTestCostData.txt` | Helps CTest estimate scheduling cost; it is not a correctness or benchmark report. |
+| Direct Python/audit output | Calling terminal or CI step log | These runners normally report through exit status and stdout/stderr; they do not share a repository-wide result-file schema. |
+| Generated public fixtures | Owned paths under `build/`, such as `build/wwhd-disc-import/fixtures` | Inputs for dependent tests, not proof those consumers passed. They may be deleted and regenerated. |
+| Packaging fixture | CI-local `build/appimage-ci/` | Non-playable package used for layout, ABI, launch-smoke, and zsync checks. The current workflow deliberately does not upload it. |
+| GitHub Actions evidence | Individual check and step logs on the pull request | Ties commands and results to a commit and runner image. Inspect every required workflow; one green check does not summarize the others. |
+| Private/gameplay evidence | Explicit developer-selected local output directory | May contain logs, checkpoint summaries, hashes, profiles, or copied mutable inputs. Keep private data local and publish only safe summaries. |
+
+Temporary fixtures and binaries are reproducible working output, not source
+artifacts. Do not commit them. If a test fails, retain the smallest relevant log
+and owned fixture long enough to reproduce the failure; do not retain or share
+private inputs merely because a test consumed them.
+
+### Interpreting a run
+
+Classify the outcome against the intended evidence, not just the final exit
+code:
+
+```mermaid
+flowchart TD
+    Start["Requested<br>validation"]
+    Config{"Configure<br>succeeded?"}
+    Built{"Expected targets<br>built?"}
+    Selected{"Expected tests<br>selected?"}
+    Passed{"Selected tests<br>passed?"}
+    Scope{"Required private or<br>hardware evidence?"}
+    Fail["Failed"]
+    Incomplete["Incomplete"]
+    Pass["Passed for<br>stated scope"]
+
+    Start --> Config
+    Config -->|No| Fail
+    Config -->|Yes| Built
+    Built -->|No| Fail
+    Built -->|Yes| Selected
+    Selected -->|No| Incomplete
+    Selected -->|Yes| Passed
+    Passed -->|No| Fail
+    Passed -->|Yes| Scope
+    Scope -->|Unavailable| Incomplete
+    Scope -->|Complete or not required| Pass
+```
+
+- **Passed for stated scope** means the expected targets built, the intended
+  tests were present and selected, all selected tests passed, and any required
+  external evidence was either completed or explicitly outside that claim.
+- **Failed** means configuration, compilation, linking, execution, an assertion,
+  a timeout, packaging, or a required comparison failed. A configure/build
+  failure is not a test failure; it is an earlier-stage failure and no later
+  test result should be claimed.
+- **Incomplete** means the command succeeded but required evidence is absent:
+  zero tests matched, a conditional test was not registered, a manual target
+  was not invoked, or required private/hardware capability was unavailable.
+- **Warning** is context, not an outcome. Attribute it to the owning source and
+  determine whether the tested contract treats it as fatal; do not silently
+  relabel a warning-producing build as warning-free.
+
+If a target was excluded or conditional, a shorter CTest count may indicate
+missing coverage rather than success. Compare `--show-only` output with the
+expected target list and test selection before interpreting `100% tests
+passed`.
+
+### Reporting results
 
 A useful test report states:
 
