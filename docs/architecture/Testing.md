@@ -626,6 +626,9 @@ CTest registration and the CI build list are separate obligations; a test must
 be in both to run there. Finish by reporting what executed and what still needs
 private, gameplay, or hardware evidence.
 
+For a concrete walk through this flow, continue to
+[Current extension: game-thread integrity](#current-extension-game-thread-integrity).
+
 ## Private and hardware validation
 
 Several important tests cannot run in public CI:
@@ -652,25 +655,75 @@ timing difference is treated as an optimization result.
 
 ## Current extension: game-thread integrity
 
-Draft [PR #399](https://github.com/chrissotraidis/bluewake/pull/399) applies the
-existing architecture to one focused gap: the native worker pool. It proposes a
-renderer-free target that compiles the real pool, runs one-time worker settings
-in fresh CTest processes, and checks partition, publication, sentinel, stress,
-and activation contracts. It also shares native-math guard/oracle registration
-between host and Linux entry points.
+Draft [PR #399](https://github.com/chrissotraidis/bluewake/pull/399) is a worked
+example of the [test-addition flow](#adding-or-changing-a-test). It starts with
+one production boundary—the native worker pool—and expands toward broader
+evidence without making that focused test stand in for the complete
+qualification plan.
 
-That work is one component suite within the broader framework described here.
-Its planning documents remain unmerged in
-[PR #397](https://github.com/chrissotraidis/bluewake/pull/397):
+### 1. Identify the boundary
+
+The pool divides independent native array work between the guest thread and
+POSIX workers, then joins before returning. The failure modes are missing or
+overlapping ranges, stale context, writes outside the submitted range, return
+before publication, and a requested parallel path silently remaining serial.
+
+### 2. Choose the smallest public case
+
+Those invariants do not require a game disc, translated module, renderer, or
+gameplay state. A standalone C harness can generate bounded arrays, visitation
+counters, output values, and sentinels. One-time worker configuration requires
+fresh processes, so CTest supplies separate invalid, zero, 1, 2, 3, and
+greater-than-8/clamped cases.
+
+### 3. Exercise production code
+
+The standalone target compiles the real `native_work_pool.c` beside the
+harness. It does not copy the partition algorithm into a test scheduler. The
+harness checks exact coverage, deterministic output, untouched sentinels,
+1,000 changing submissions, and the production batch counter after the
+synchronous return boundary.
+
+### 4. Register the test paths
+
+The pool directory can configure as a renderer-free CMake project and can be
+included by a platform graph. Shared native-math registration keeps the
+existing public guard and private oracle target definitions aligned between the
+host and Linux entry points. Environment, case names, labels, and timeouts live
+in CTest rather than in an undocumented shell recipe.
+
+### 5. Connect CI
+
+Registration makes cases visible to CTest, but the Linux workflow builds an
+explicit target list before running `ctest`. The new pool and guard targets must
+also appear in that build list before the implementation is ready; otherwise a
+registered test may have no executable in the CI build tree. Windows remains a
+serial compatibility boundary and needs its own source/build evidence.
+
+### 6. Run and interpret focused evidence
+
+PR #399 recorded the standalone matrix at 6/6 and the Linux-integrated subset
+at 8/8 on commit `97137c6e8178dd17df7e65dc41691d9a75df9c1c`. ASan/UBSan also
+passed 6/6 with leak detection disabled because LeakSanitizer could not run
+under that container's `ptrace` environment. These are scoped local results:
+they establish the synthetic pool contracts on that Linux environment, not
+Windows execution, translated-module equality, gameplay correctness, or a
+performance gain.
+
+### 7. Continue to private and hardware evidence
+
+The remaining plan adds deterministic creation failures and delayed workers,
+module load/unload lifecycle checks, a three-path translated/serial/parallel
+oracle, candidate-owned activation diagnostics, gameplay checkpoint routes,
+load/topology measurements, and Steam Deck soaks. Each belongs to a later
+evidence layer rather than the standalone harness.
+
+The requirements and remaining milestones are tracked in unmerged
+[planning PR #397](https://github.com/chrissotraidis/bluewake/pull/397):
 
 - [Product requirements](https://github.com/irregularthanis/bluewake/blob/docs/gamethread-integtests/docs/planning/2026-10-18-gamethread-integtests/PRD.md)
 - [Technical plan](https://github.com/irregularthanis/bluewake/blob/docs/gamethread-integtests/docs/planning/2026-10-18-gamethread-integtests/TECH_PLAN.md)
 - [Milestones](https://github.com/irregularthanis/bluewake/blob/docs/gamethread-integtests/docs/planning/2026-10-18-gamethread-integtests/PROGRESS.md)
-
-Later milestones add private oracle boundaries, lifecycle fault injection,
-sanitizer lanes, gameplay qualification, topology-aware load, and hardware
-soaks. They should extend the appropriate layers rather than turn one CTest
-binary into the entire qualification system.
 
 ## Source map
 
