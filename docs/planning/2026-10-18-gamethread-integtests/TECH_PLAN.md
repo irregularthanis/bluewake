@@ -20,14 +20,14 @@ Architecture: [runtime entities](https://github.com/irregularthanis/bluewake/blo
 
 ```mermaid
 flowchart TD
-    G["Guest thread: validate inputs"] --> E{"Eligible native batch?"}
-    E -->|No| T["Original translation"]
-    E -->|Yes| S["Split independent vector ranges"]
+    G["Guest thread<br>validate inputs"] --> E{"Eligible native<br>batch?"}
+    E -->|No| T["Original<br>translation"]
+    E -->|Yes| S["Split<br>independent<br>vector ranges"]
     S --> C["Caller range"]
     S --> W["Worker ranges"]
     C --> J["Join all ranges"]
     W --> J
-    J --> R["Commit guest registers and cycles"]
+    J --> R["Commit guest<br>registers and<br>cycles"]
 ```
 
 Parallelism stays inside a validated native operation. Workers must not execute arbitrary guest blocks or access CPU/device state. Flow: [guest execution loop](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution) → [translated dispatch](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#translated-code-dispatch) → [CPUState](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#cpustate-layout).
@@ -94,14 +94,14 @@ Compare the same seeded corpus against:
 
 ```mermaid
 flowchart TD
-    I["Identical CPU and RAM inputs"] --> O["Original translated routine"]
-    I --> S["Serial native routine"]
-    I --> P["Parallel native routine"]
-    O --> D{"Guest fields and RAM match?"}
+    I["Identical CPU<br>and RAM inputs"] --> O["Original<br>translated<br>routine"]
+    I --> S["Serial native<br>routine"]
+    I --> P["Parallel native<br>routine"]
+    O --> D{"Guest fields and<br>RAM match?"}
     S --> D
     P --> D
-    D -->|No| F["Fail with first difference"]
-    D -->|Yes| A["Check actual path activation"]
+    D -->|No| F["Fail with first<br>difference"]
+    D -->|Yes| A["Check actual<br>path activation"]
 ```
 
 Preserve existing cases. Add:
