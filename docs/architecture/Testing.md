@@ -239,15 +239,15 @@ flowchart TD
 
 The main registration styles are:
 
-| Style | Location | Use |
-| --- | --- | --- |
-| Direct target and `add_test` | Platform `CMakeLists.txt` | Platform-specific linkage or a small single-use test |
-| Shared CMake fragment | `cmake/*_test.cmake` | The same target definition is included by multiple entry points |
-| Loop-generated variants | Platform CMake | One harness runs against compile-time modes such as plain/global guest memory |
-| Repeated CTest command | `add_test` plus properties | One binary runs with different arguments or environments, such as haptics modes |
-| CTest fixture | `FIXTURES_SETUP` and dependent tests | A generated artifact is created before consumers run |
-| Conditional registration | `if(EXISTS ...)` or target availability | A local module or optional runtime component is required |
-| Manual target | `EXCLUDE_FROM_ALL`, no `add_test` | Private input, GPU oracle, or explicit developer workflow |
+| Style | Location | Use | When does it run? | Code reference |
+| --- | --- | --- | --- | --- |
+| Direct target and `add_test` | Platform `CMakeLists.txt` | Platform-specific linkage or a small single-use test | After its executable is built, whenever the configured CTest selection includes its registered name. | [Host scheduler contract](../../runtime/host/CMakeLists.txt#L137-L147) |
+| Shared CMake fragment | `cmake/*_test.cmake` | The same target definition is included by multiple entry points | When an including platform graph is configured, builds the shared target, and runs the matching registered CTest. | [DVD completion registration](../../cmake/dvd_completion_test.cmake) and [Linux inclusion](../../linux/CMakeLists.txt#L224-L229) |
+| Loop-generated variants | Platform CMake | One harness runs against compile-time modes such as plain/global guest memory | Each generated target becomes a separate test; selected variants run independently in the same CTest invocation. | [Host gather-memory variants](../../runtime/host/CMakeLists.txt#L292-L308) |
+| Repeated CTest command | `add_test` plus properties | One binary runs with different arguments or environments, such as haptics modes | CTest starts the same built executable once for every registered case whose name matches the selection. | [Haptics modes](../../cmake/haptics_test.cmake#L1-L9) |
+| CTest fixture | `FIXTURES_SETUP` and dependent tests | A generated artifact is created before consumers run | When a dependent consumer is selected, CTest schedules the fixture setup first and then runs consumers against its outputs. | [Generated HD-disc fixture](../../cmake/wwhd_disc_image_test.cmake#L20-L38) |
+| Conditional registration | `if(EXISTS ...)` or target availability | A local module or optional runtime component is required | Only when the requirement existed at CMake configure time; otherwise the target or CTest entry is absent from that build graph. | [Generated scheduler contract](../../runtime/host/CMakeLists.txt#L663-L678) |
+| Manual target | `EXCLUDE_FROM_ALL`, no `add_test` | Private input, GPU oracle, or explicit developer workflow | Only when a developer explicitly names the target during the build and then invokes the executable with its required local inputs. | [Private native-math oracle](../../runtime/host/CMakeLists.txt#L347-L356) and [manual GPU oracle](../../runtime/host/CMakeLists.txt#L604-L612) |
 
 CTest properties carry operational contracts such as environment variables,
 timeouts, labels, and fixture dependencies. A new test should encode these in
