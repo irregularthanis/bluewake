@@ -655,136 +655,185 @@ timing difference is treated as an optimization result.
 
 ## Current extension: game-thread integrity
 
-Draft [PR #399](https://github.com/chrissotraidis/bluewake/pull/399) is a worked
-example of the [test-addition flow](#adding-or-changing-a-test). It starts with
-one production boundary—the native worker pool—and expands toward broader
-evidence without making that focused test stand in for the complete
-qualification plan.
+Draft [PR #399](https://github.com/chrissotraidis/bluewake/pull/399) is the
+operator's worked example for the [test-addition flow](#adding-or-changing-a-test).
+The implementation adds a synthetic harness, standalone CMake project, and
+shared registration around the real native worker pool.
 
-The **test operator** below owns the path from a proposed assertion to a result
-that another reviewer can reproduce. At each stage, the operator decides what
-to add, runs the narrowest relevant command, and inspects an artifact before
-moving outward.
+```mermaid
+flowchart LR
+    Inventory["1. Inventory"]
+    Standalone["2. Standalone"]
+    Integrated["3. Integrated"]
+    Sanitizers["4. Sanitizers"]
+    CI["5. CI"]
+    Private["6. Private and<br>hardware"]
 
-### 1. Identify the boundary
+    Inventory --> Standalone --> Integrated --> Sanitizers --> CI --> Private
+```
 
-The pool divides independent native array work between the guest thread and
-POSIX workers, then joins before returning. The failure modes are missing or
-overlapping ranges, stale context, writes outside the submitted range, return
-before publication, and a requested parallel path silently remaining serial.
+### 1. Inventory the standalone cases
 
-- **Operator adds:** a boundary statement and failure inventory to the test
-  plan before adding code.
-- **Operator runs:** source inspection of `native_work_pool.c/.h` and the
-  existing native-math guard/oracle registrations.
-- **Operator inspects:** ownership, configuration, partition, join, teardown,
-  and activation interfaces. The output of this stage is a testable contract,
-  not a pass result.
+**What to run?**
 
-### 2. Choose the smallest public case
+```bash
+cmake -S tests/native_work_pool -B build/native-work-pool \
+  -DCMAKE_BUILD_TYPE=Debug
+ctest --test-dir build/native-work-pool --show-only
+```
 
-Those invariants do not require a game disc, translated module, renderer, or
-gameplay state. A standalone C harness can generate bounded arrays, visitation
-counters, output values, and sentinels. One-time worker configuration requires
-fresh processes, so CTest supplies separate invalid, zero, 1, 2, 3, and
-greater-than-8/clamped cases.
+**Why?** Confirm that the renderer-free graph resolves and that one-time worker
+settings became separate CTest processes.
 
-- **Operator adds:** a public harness under `tests/` and a standalone CMake
-  entry under `tests/native_work_pool/`.
-- **Operator runs:** `cmake -S tests/native_work_pool -B build/native-work-pool`,
-  followed by `ctest --test-dir build/native-work-pool --show-only`.
-- **Operator inspects:** `CMakeCache.txt` for the resolved platform/thread
-  configuration and the CTest inventory for all expected fresh-process cases.
-  Missing cases make the result incomplete before any assertion runs.
+**When?** Immediately after adding or changing the harness, its CMake file, or
+worker configuration matrix; before interpreting any pass count.
 
-### 3. Exercise production code
+**Output artifacts inspection and interpretation:**
 
-The standalone target compiles the real `native_work_pool.c` beside the
-harness. It does not copy the partition algorithm into a test scheduler. The
-harness checks exact coverage, deterministic output, untouched sentinels,
-1,000 changing submissions, and the production batch counter after the
-synchronous return boundary.
+- `build/native-work-pool/CMakeCache.txt`: verify compiler, build type, and
+  thread resolution.
+- CTest inventory: expect six POSIX cases—invalid, zero, 1, 2, 3, and
+  99/clamped. Windows intentionally exposes only the serial case.
+- Missing or duplicate cases mean **incomplete registration**; no behavioral
+  pass exists yet.
 
-- **Operator adds:** the production source itself to the test target; no copied
-  scheduler or test-only partition implementation.
-- **Operator runs:** `cmake --build build/native-work-pool --parallel`, then
-  `ctest --test-dir build/native-work-pool --output-on-failure`.
-- **Operator inspects:** the linked target, the 6/6 CTest summary, and
-  `Testing/Temporary/LastTest.log`. On failure, the first bad visit, value,
-  sentinel, timeout, or batch count identifies which contract broke.
+### 2. Build and run the real pool
 
-### 4. Register the test paths
+**What to run?**
 
-The pool directory can configure as a renderer-free CMake project and can be
-included by a platform graph. Shared native-math registration keeps the
-existing public guard and private oracle target definitions aligned between the
-host and Linux entry points. Environment, case names, labels, and timeouts live
-in CTest rather than in an undocumented shell recipe.
+```bash
+cmake --build build/native-work-pool --parallel
+ctest --test-dir build/native-work-pool --output-on-failure
+```
 
-- **Operator adds:** shared CMake registration where target definitions must
-  match, plus `add_subdirectory` calls in every platform graph that should own
-  the standalone suite.
-- **Operator runs:** a clean Linux configure with
-  `BLUEWAKE_LINUX_REGRESSION_TESTS=ON`, builds
-  `bluewake_native_work_pool_test` and `bluewake_native_math_guard_test`, then
-  lists the matching CTest names.
-- **Operator inspects:** that the standalone cases and existing guard/worker
-  cases are present once, use the intended environments/timeouts, and retain
-  the private oracle's `EXCLUDE_FROM_ALL` boundary.
+**Why?** Exercise production `native_work_pool.c` for exact partitions,
+publication before return, untouched sentinels, 1,000 changing submissions,
+and actual parallel-path activation.
 
-### 5. Connect CI
+**When?** After the inventory contains every expected case; repeat after any
+pool, harness, compiler, or configuration change.
 
-Registration makes cases visible to CTest, but the Linux workflow builds an
-explicit target list before running `ctest`. The new pool and guard targets must
-also appear in that build list before the implementation is ready; otherwise a
-registered test may have no executable in the CI build tree. Windows remains a
-serial compatibility boundary and needs its own source/build evidence.
+**Output artifacts inspection and interpretation:**
 
-- **Operator adds:** each new executable to the relevant workflow's explicit
-  `cmake --build --target` list as well as its CTest registration.
-- **Operator runs:** the workflow-equivalent configure, explicit build, and
-  CTest selection locally when possible, then lets all required pull-request
-  checks run for the pushed commit.
-- **Operator inspects:** CI logs for the exact commit, confirms that the new
-  targets compiled before CTest, checks the selected test count, and treats a
-  missing Windows serial build or still-pending required job as incomplete.
+- `bluewake_native_work_pool_test`: proves the real pool and harness linked,
+  not that they ran.
+- CTest summary: expect 6/6 on POSIX. A lower selected count is incomplete even
+  if it says `100% tests passed`.
+- `build/native-work-pool/Testing/Temporary/LastTest.log`: inspect the first bad
+  visit, value, sentinel, timeout, or batch count when a case fails.
 
-### 6. Run and interpret focused evidence
+### 3. Run through the Linux graph
 
-PR #399 recorded the standalone matrix at 6/6 and the Linux-integrated subset
-at 8/8 on commit `97137c6e8178dd17df7e65dc41691d9a75df9c1c`. ASan/UBSan also
-passed 6/6 with leak detection disabled because LeakSanitizer could not run
-under that container's `ptrace` environment. These are scoped local results:
-they establish the synthetic pool contracts on that Linux environment, not
-Windows execution, translated-module equality, gameplay correctness, or a
-performance gain.
+**What to run?**
 
-- **Operator adds:** the exact commit, commands, test counts, sanitizer
-  limitation, and log locations to the pull-request evidence.
-- **Operator runs:** the standalone and Linux-integrated commands from a clean
-  configuration, plus the supported sanitizer configuration.
-- **Operator inspects:** `6/6`, `8/8`, sanitizer diagnostics, warnings, and the
-  intended CTest inventories. The operator reports “passed for stated Linux
-  source-only scope,” not “game-thread optimization qualified.”
+```bash
+cmake -S linux -B build/linux-gamethread-tests \
+  -DBLUEWAKE_LINUX_REGRESSION_TESTS=ON
+cmake --build build/linux-gamethread-tests --parallel --target \
+  bluewake_native_work_pool_test bluewake_native_math_guard_test
+ctest --test-dir build/linux-gamethread-tests --output-on-failure \
+  -R 'bluewake_native_(work_pool|math_(guard|workers))'
+```
 
-### 7. Continue to private and hardware evidence
+**Why?** Prove that shared native-math registration and the standalone pool
+suite survive the supported Linux CMake entry point and its GXRuntime linkage.
 
-The remaining plan adds deterministic creation failures and delayed workers,
-module load/unload lifecycle checks, a three-path translated/serial/parallel
-oracle, candidate-owned activation diagnostics, gameplay checkpoint routes,
-load/topology measurements, and Steam Deck soaks. Each belongs to a later
-evidence layer rather than the standalone harness.
+**When?** After standalone success and whenever shared registration, Linux
+CMake, GXRuntime linkage, or the native-math guard changes.
 
-- **Operator adds:** deterministic lifecycle seams, private-oracle comparison,
-  activation diagnostics, route manifests, and device/run metadata only in the
-  milestone that owns each boundary.
-- **Operator runs:** public lifecycle and sanitizer cases first, then local
-  translated-module comparisons, gameplay routes, load matrices, and hardware
-  soaks as their prerequisites become available.
-- **Operator inspects:** first-difference diagnostics, complete checkpoint
-  grids, path-activation counters, process cleanup, topology/thermal context,
-  and retained local logs. Missing required private or device evidence remains
-  incomplete rather than becoming an assumed pass.
+**Output artifacts inspection and interpretation:**
+
+- CTest inventory: expect two native-math guard/worker cases plus six pool
+  cases.
+- Summary: expect 8/8; inspect
+  `build/linux-gamethread-tests/Testing/Temporary/LastTest.log` otherwise.
+- Attribute compiler warnings to their owning source. A pre-existing dependency
+  warning is context, not evidence that changed files were warning-free.
+
+### 4. Run sanitizers
+
+**What to run?**
+
+```bash
+cmake -S tests/native_work_pool -B build/native-work-pool-sanitize \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_FLAGS='-Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer' \
+  -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build build/native-work-pool-sanitize --parallel
+ctest --test-dir build/native-work-pool-sanitize --output-on-failure
+```
+
+**Why?** Detect memory and undefined-behavior defects outside the functional
+assertions.
+
+**When?** After an ordinary build passes, and again after memory ownership,
+range, publication, or teardown changes.
+
+**Output artifacts inspection and interpretation:**
+
+- Expect 6/6 with no ASan/UBSan diagnostic.
+- If LeakSanitizer cannot run under `ptrace`, rerun with
+  `ASAN_OPTIONS=detect_leaks=0` and report the leak check as unavailable; address
+  and undefined-behavior coverage remain, but leak coverage does not.
+- A sanitizer abort is a failure even if the unsanitized suite passed.
+
+### 5. Verify pull-request CI
+
+**What to run?**
+
+```bash
+gh pr checks 399 --repo chrissotraidis/bluewake
+```
+
+**Why?** Tie Linux, Windows, audit, and attribution evidence to the pushed
+commit and CI environments.
+
+**When?** After adding the new executables to each relevant workflow's explicit
+build-target list and after every pushed implementation change.
+
+**Output artifacts inspection and interpretation:**
+
+- Open each required check log; confirm the targets compiled before CTest and
+  that the expected tests were selected.
+- `pending`, a missing check, a missing executable, or absent Windows serial
+  evidence means **incomplete**, not passed.
+- Registration alone is insufficient: Linux CI builds an explicit target list
+  before running CTest, so the new targets must appear in that list.
+
+### 6. Extend to private and hardware evidence
+
+**What to run?**
+
+```bash
+BLUEWAKE_NATIVE_WORKERS=0 BUILD/bluewake_native_math_test \
+  REFERENCE_MODULE --candidate CANDIDATE_MODULE
+BLUEWAKE_NATIVE_WORKERS=2 BUILD/bluewake_native_math_test \
+  REFERENCE_MODULE --candidate CANDIDATE_MODULE
+```
+
+Later planning milestones add lifecycle, gameplay, load, topology, and soak
+commands; do not invent a pass command before those runners exist.
+
+**Why?** Compare translated, serial-native, and parallel-native state using
+local player-owned modules, then extend correctness evidence to representative
+gameplay and devices.
+
+**When?** Only after public source-only, sanitizer, and platform checks pass;
+repeat on the candidate module and hardware being qualified.
+
+**Output artifacts inspection and interpretation:**
+
+- Inspect first CPU/RAM differences, activation counters, complete checkpoint
+  grids, cleanup status, and topology/thermal context.
+- Keep modules, discs, states, cards, and raw logs local. Publish only safe
+  hashes and summaries.
+- Missing required module, gameplay, or device evidence means **incomplete**.
+  Source-only success does not establish gameplay correctness or performance.
+
+PR #399 recorded 6/6 standalone, 8/8 Linux-integrated, and 6/6 ASan/UBSan
+results at commit `97137c6e8178dd17df7e65dc41691d9a75df9c1c`; leak detection
+was unavailable under the traced container. Interpret those results as Linux
+source-only evidence, not complete game-thread qualification.
 
 The requirements and remaining milestones are tracked in unmerged
 [planning PR #397](https://github.com/chrissotraidis/bluewake/pull/397):
