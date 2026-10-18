@@ -661,12 +661,25 @@ one production boundary—the native worker pool—and expands toward broader
 evidence without making that focused test stand in for the complete
 qualification plan.
 
+The **test operator** below owns the path from a proposed assertion to a result
+that another reviewer can reproduce. At each stage, the operator decides what
+to add, runs the narrowest relevant command, and inspects an artifact before
+moving outward.
+
 ### 1. Identify the boundary
 
 The pool divides independent native array work between the guest thread and
 POSIX workers, then joins before returning. The failure modes are missing or
 overlapping ranges, stale context, writes outside the submitted range, return
 before publication, and a requested parallel path silently remaining serial.
+
+- **Operator adds:** a boundary statement and failure inventory to the test
+  plan before adding code.
+- **Operator runs:** source inspection of `native_work_pool.c/.h` and the
+  existing native-math guard/oracle registrations.
+- **Operator inspects:** ownership, configuration, partition, join, teardown,
+  and activation interfaces. The output of this stage is a testable contract,
+  not a pass result.
 
 ### 2. Choose the smallest public case
 
@@ -676,6 +689,14 @@ counters, output values, and sentinels. One-time worker configuration requires
 fresh processes, so CTest supplies separate invalid, zero, 1, 2, 3, and
 greater-than-8/clamped cases.
 
+- **Operator adds:** a public harness under `tests/` and a standalone CMake
+  entry under `tests/native_work_pool/`.
+- **Operator runs:** `cmake -S tests/native_work_pool -B build/native-work-pool`,
+  followed by `ctest --test-dir build/native-work-pool --show-only`.
+- **Operator inspects:** `CMakeCache.txt` for the resolved platform/thread
+  configuration and the CTest inventory for all expected fresh-process cases.
+  Missing cases make the result incomplete before any assertion runs.
+
 ### 3. Exercise production code
 
 The standalone target compiles the real `native_work_pool.c` beside the
@@ -683,6 +704,14 @@ harness. It does not copy the partition algorithm into a test scheduler. The
 harness checks exact coverage, deterministic output, untouched sentinels,
 1,000 changing submissions, and the production batch counter after the
 synchronous return boundary.
+
+- **Operator adds:** the production source itself to the test target; no copied
+  scheduler or test-only partition implementation.
+- **Operator runs:** `cmake --build build/native-work-pool --parallel`, then
+  `ctest --test-dir build/native-work-pool --output-on-failure`.
+- **Operator inspects:** the linked target, the 6/6 CTest summary, and
+  `Testing/Temporary/LastTest.log`. On failure, the first bad visit, value,
+  sentinel, timeout, or batch count identifies which contract broke.
 
 ### 4. Register the test paths
 
@@ -692,6 +721,17 @@ existing public guard and private oracle target definitions aligned between the
 host and Linux entry points. Environment, case names, labels, and timeouts live
 in CTest rather than in an undocumented shell recipe.
 
+- **Operator adds:** shared CMake registration where target definitions must
+  match, plus `add_subdirectory` calls in every platform graph that should own
+  the standalone suite.
+- **Operator runs:** a clean Linux configure with
+  `BLUEWAKE_LINUX_REGRESSION_TESTS=ON`, builds
+  `bluewake_native_work_pool_test` and `bluewake_native_math_guard_test`, then
+  lists the matching CTest names.
+- **Operator inspects:** that the standalone cases and existing guard/worker
+  cases are present once, use the intended environments/timeouts, and retain
+  the private oracle's `EXCLUDE_FROM_ALL` boundary.
+
 ### 5. Connect CI
 
 Registration makes cases visible to CTest, but the Linux workflow builds an
@@ -699,6 +739,15 @@ explicit target list before running `ctest`. The new pool and guard targets must
 also appear in that build list before the implementation is ready; otherwise a
 registered test may have no executable in the CI build tree. Windows remains a
 serial compatibility boundary and needs its own source/build evidence.
+
+- **Operator adds:** each new executable to the relevant workflow's explicit
+  `cmake --build --target` list as well as its CTest registration.
+- **Operator runs:** the workflow-equivalent configure, explicit build, and
+  CTest selection locally when possible, then lets all required pull-request
+  checks run for the pushed commit.
+- **Operator inspects:** CI logs for the exact commit, confirms that the new
+  targets compiled before CTest, checks the selected test count, and treats a
+  missing Windows serial build or still-pending required job as incomplete.
 
 ### 6. Run and interpret focused evidence
 
@@ -710,6 +759,14 @@ they establish the synthetic pool contracts on that Linux environment, not
 Windows execution, translated-module equality, gameplay correctness, or a
 performance gain.
 
+- **Operator adds:** the exact commit, commands, test counts, sanitizer
+  limitation, and log locations to the pull-request evidence.
+- **Operator runs:** the standalone and Linux-integrated commands from a clean
+  configuration, plus the supported sanitizer configuration.
+- **Operator inspects:** `6/6`, `8/8`, sanitizer diagnostics, warnings, and the
+  intended CTest inventories. The operator reports “passed for stated Linux
+  source-only scope,” not “game-thread optimization qualified.”
+
 ### 7. Continue to private and hardware evidence
 
 The remaining plan adds deterministic creation failures and delayed workers,
@@ -717,6 +774,17 @@ module load/unload lifecycle checks, a three-path translated/serial/parallel
 oracle, candidate-owned activation diagnostics, gameplay checkpoint routes,
 load/topology measurements, and Steam Deck soaks. Each belongs to a later
 evidence layer rather than the standalone harness.
+
+- **Operator adds:** deterministic lifecycle seams, private-oracle comparison,
+  activation diagnostics, route manifests, and device/run metadata only in the
+  milestone that owns each boundary.
+- **Operator runs:** public lifecycle and sanitizer cases first, then local
+  translated-module comparisons, gameplay routes, load matrices, and hardware
+  soaks as their prerequisites become available.
+- **Operator inspects:** first-difference diagnostics, complete checkpoint
+  grids, path-activation counters, process cleanup, topology/thermal context,
+  and retained local logs. Missing required private or device evidence remains
+  incomplete rather than becoming an assumed pass.
 
 The requirements and remaining milestones are tracked in unmerged
 [planning PR #397](https://github.com/chrissotraidis/bluewake/pull/397):
