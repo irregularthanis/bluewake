@@ -481,36 +481,52 @@ or stale conditional registration make the configured graph ambiguous.
 
 ## Adding or changing a test
 
-Start from the production boundary, not from a preferred test language.
+Start at the changed production boundary and move outward only as the evidence
+requires:
 
-1. Identify the owning source, expected behavior, failure mode, and platforms.
-2. Choose the lowest layer that can reproduce the defect with public synthetic
-   data.
-3. Put reusable fixtures or comparisons in `tests/`; compile production source
-   directly or link its real target rather than copying its implementation.
-4. Register compiled tests in every relevant platform graph, using a shared
-   `.cmake` fragment when definitions should remain identical.
-5. Encode arguments, environment, timeouts, labels, and fixture dependencies in
-   CTest properties.
-6. Keep private or graphics-dependent targets explicit and document why they
-   are manual or conditional.
-7. Add the target to the relevant CI build list as well as CTest registration.
-   Registration alone does not guarantee that CI builds the executable.
-8. Run the focused test, the platform CTest subset, repository audit, and the
-   other platform's CI when shared code is involved.
-9. Record exactly what ran and which gameplay or hardware checks remain.
+```mermaid
+flowchart TD
+    Boundary["Changed<br>boundary"]
+    Public{"Public synthetic<br>case possible?"}
+    Layer["Choose smallest<br>test layer"]
+    Real["Exercise real<br>production code"]
+    Register{"Compiled<br>test?"}
+    CTest["Register in each<br>platform graph"]
+    Python["Add to direct<br>Python workflow"]
+    CI["Add expected target<br>to CI build"]
+    Focused["Run focused<br>test"]
+    Platform["Run platform<br>suite and audit"]
+    More{"Private or hardware<br>evidence needed?"}
+    Private["Run explicit private<br>or hardware check"]
+    Report["Record results<br>and remaining gaps"]
 
-Good source-only tests are deterministic and bounded. They use explicit
-barriers or conditions for concurrency, temporary owned paths for filesystem
-work, stable seeded inputs where randomness adds coverage, and timeouts for
-process or thread failure. Sleep duration alone should not be the correctness
-condition.
+    Boundary --> Public
+    Public -->|Yes| Layer --> Real --> Register
+    Register -->|Yes| CTest --> CI
+    Register -->|No| Python
+    CI --> Focused
+    Python --> Focused
+    Focused --> Platform --> More
+    More -->|Yes| Private --> Report
+    More -->|No| Report
+    Public -->|No| Private
+```
 
-When a regression spans multiple layers, keep the assertions close to the
-failure. A Python source check may protect generated syntax, a C component test
-may protect the runtime contract, and a gameplay checkpoint may protect the
-end-to-end effect. One oversized test is usually less diagnostic than these
-linked layers.
+Use the boundary to select the route:
+
+| Changed boundary | First test layer | Registration path |
+| --- | --- | --- |
+| Build script, manifest, or generated text | Python source contract | Invoke it explicitly from the relevant workflow |
+| Host or service behavior | Compiled synthetic component | Add the target and CTest entry to each affected platform graph |
+| Shared cross-platform behavior | Compiled component with common definition | Put the common target in a reusable `cmake/*_test.cmake` fragment |
+| Optional module or renderer capability | Conditional or manual target | State the requirement and keep absence distinguishable from a pass |
+| Gameplay, device, or private artifact | Local qualification after the narrow public invariant | Keep inputs and retained artifacts out of git and CI |
+
+At every route, keep the test deterministic and bounded: use production code,
+owned temporary paths, stable inputs, explicit synchronization, and timeouts.
+CTest registration and the CI build list are separate obligations; a test must
+be in both to run there. Finish by reporting what executed and what still needs
+private, gameplay, or hardware evidence.
 
 ## Private and hardware validation
 
