@@ -6,6 +6,7 @@
 - [High-level view](#high-level-view)
 - [Build process](#build-process)
 - [Runtime](#runtime)
+- [Testing](#testing)
 
 Architecture path: [Index](README.md) → **Overview**
 
@@ -160,6 +161,20 @@ and a concrete contributing PR: [host data](Host.md#artifact-to-game-examples),
 
 For the complete component map, interaction boundaries, and links to each
 entity's internals, continue to [Runtime](Runtime.md).
+
+## Testing
+
+BlueWake's native game-thread tests separate public synthetic checks from
+private translated-module comparisons. The source-only worker-pool suite
+compiles the production scheduler without the renderer, runs each one-time
+worker configuration in a fresh process, and checks exact partitions,
+synchronous result publication, sentinels, repeated submissions, and actual
+parallel-path activation. Shared CMake registration keeps the host and Linux
+native-math guard/oracle targets aligned.
+
+For the test layers, execution model, commands, result interpretation,
+sanitizer workflow, and planned qualification extensions, continue to
+[Testing](Testing.md).
 
 To measure these build and runtime components, identify a bottleneck, and
 validate an optimization, continue to the
