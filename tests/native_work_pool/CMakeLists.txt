@@ -7,6 +7,8 @@ endif()
 
 get_filename_component(BLUEWAKE_POOL_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 
+# Compile the production pool directly: this target deliberately has no
+# GXRuntime, renderer, translated-module, or player-owned-data dependency.
 add_executable(bluewake_native_work_pool_test
     ${BLUEWAKE_POOL_REPO_ROOT}/tests/native_work_pool_test.c
     ${BLUEWAKE_POOL_REPO_ROOT}/cmake/composite/native_work_pool.c)
@@ -18,6 +20,8 @@ if(NOT WIN32)
     target_link_libraries(bluewake_native_work_pool_test PRIVATE Threads::Threads m)
 endif()
 
+# Worker selection is initialized once per process, so every environment
+# configuration must be a separate CTest invocation of the same binary.
 add_test(NAME bluewake_native_work_pool_serial_test
     COMMAND bluewake_native_work_pool_test 0)
 set_tests_properties(bluewake_native_work_pool_serial_test PROPERTIES
@@ -26,6 +30,8 @@ set_tests_properties(bluewake_native_work_pool_serial_test PROPERTIES
     TIMEOUT 15)
 
 if(NOT WIN32)
+    # Cover both serial parser outcomes, representative worker counts, and the
+    # production maximum-worker clamp. Windows intentionally remains serial.
     add_test(NAME bluewake_native_work_pool_zero_test
         COMMAND bluewake_native_work_pool_test 0)
     set_tests_properties(bluewake_native_work_pool_zero_test PROPERTIES

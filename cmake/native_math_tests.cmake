@@ -1,7 +1,9 @@
 include_guard(GLOBAL)
 
 function(bluewake_add_native_math_tests)
-    # Requires a local player-owned module; built explicitly, never run by public CI.
+    # Keep the private differential oracle identical across host entry points.
+    # It is available to developers with an extracted module, but excluded from
+    # ordinary builds and never registered with CTest.
     add_executable(bluewake_native_math_test EXCLUDE_FROM_ALL
         ${BLUEWAKE_REPO_ROOT}/tests/native_math_test.c
         ${BLUEWAKE_REPO_ROOT}/cmake/composite/native_math.c
@@ -12,6 +14,8 @@ function(bluewake_add_native_math_tests)
     target_link_libraries(bluewake_native_math_test PRIVATE gxruntime ${CMAKE_DL_LIBS})
     target_compile_options(bluewake_native_math_test PRIVATE -ffp-contract=off)
 
+    # The synthetic guard test has no player-owned inputs. Register it normally
+    # so public builds exercise native routing and the serial implementation.
     add_executable(bluewake_native_math_guard_test
         ${BLUEWAKE_REPO_ROOT}/tests/native_math_guard_test.c
         ${BLUEWAKE_REPO_ROOT}/cmake/composite/native_math.c
@@ -23,6 +27,8 @@ function(bluewake_add_native_math_tests)
     add_test(NAME bluewake_native_math_guard_test COMMAND bluewake_native_math_guard_test)
 
     if(NOT WIN32)
+        # POSIX builds compile the real worker backend. Reuse the guard binary
+        # in a fresh process so its one-time worker configuration sees W=2.
         find_package(Threads REQUIRED)
         target_link_libraries(bluewake_native_math_test PRIVATE Threads::Threads)
         target_link_libraries(bluewake_native_math_guard_test PRIVATE Threads::Threads)

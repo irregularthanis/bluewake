@@ -4,6 +4,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* POSIX callbacks can update the visitation map concurrently. The Windows
+ * backend is serial and uses plain counters so the same source remains usable
+ * with Windows C toolchains that do not provide C11 atomics. */
 #if defined(_WIN32)
 typedef unsigned visit_count;
 #define STORE_VISIT(value, count) (*(value) = (count))
@@ -40,6 +43,8 @@ static void fill_range(void *opaque, size_t first, size_t end)
 static int run_case(struct work_context *context, size_t count,
                     size_t grain, uint32_t salt)
 {
+    /* Reset the full allocation so entries outside the submitted range serve
+     * as sentinels for overrun and incorrect partition boundaries. */
     for (size_t index = 0; index < MAX_ITEMS; ++index) {
         STORE_VISIT(&context->visits[index], 0u);
         context->output[index] = UINT32_C(0xdeadbeef);
@@ -48,6 +53,8 @@ static int run_case(struct work_context *context, size_t count,
 
     bluewake_parallel_range(count, grain, fill_range, context);
 
+    /* Returning from bluewake_parallel_range is the publication boundary: all
+     * submitted entries must be visible exactly once, with sentinels intact. */
     for (size_t index = 0; index < count; ++index) {
         unsigned visits = LOAD_VISIT(&context->visits[index]);
         if (visits != 1u || context->output[index] != ((uint32_t)index ^ salt)) {
@@ -75,6 +82,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /* Exercise empty, below-grain serial, and uneven parallel partitions before
+     * repeatedly replacing the context contents and submitted range. */
     unsigned long long batches_before = bluewake_parallel_batches();
     if (run_case(context, 0, 1, 1) ||
         run_case(context, 17, 256, 2) ||
@@ -90,6 +99,8 @@ int main(int argc, char **argv)
         }
     }
 
+    /* The public batch counter proves that worker-enabled test processes took
+     * the parallel path, while invalid and zero configurations stayed serial. */
     unsigned long long batches_after = bluewake_parallel_batches();
     if ((expected_workers == 0 && batches_after != batches_before) ||
         (expected_workers != 0 && batches_after <= batches_before)) {
