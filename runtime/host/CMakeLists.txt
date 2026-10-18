@@ -344,16 +344,9 @@ target_link_libraries(bluewake_gather_dispatch_test PRIVATE gxruntime)
 target_compile_definitions(bluewake_gather_dispatch_test PRIVATE BLUEWAKE_GATHER_PIPE=1)
 add_test(NAME bluewake_gather_dispatch_test COMMAND bluewake_gather_dispatch_test)
 
-# Requires a local player-owned module; built explicitly, never run by public CI.
-add_executable(bluewake_native_math_test EXCLUDE_FROM_ALL
-    ${BLUEWAKE_REPO_ROOT}/tests/native_math_test.c
-    ${BLUEWAKE_REPO_ROOT}/cmake/composite/native_math.c
-    ${BLUEWAKE_REPO_ROOT}/cmake/composite/native_work_pool.c)
-target_include_directories(bluewake_native_math_test PRIVATE
-    ${BLUEWAKE_REPO_ROOT}/cmake/composite
-    ${BLUEWAKE_REPO_ROOT}/ref/recompcore/Source/Core/Core/PowerPC/StaticRecomp)
-target_link_libraries(bluewake_native_math_test PRIVATE gxruntime ${CMAKE_DL_LIBS})
-target_compile_options(bluewake_native_math_test PRIVATE -ffp-contract=off)
+include("${BLUEWAKE_REPO_ROOT}/cmake/native_math_tests.cmake")
+bluewake_add_native_math_tests()
+add_subdirectory(${BLUEWAKE_REPO_ROOT}/tests/native_work_pool native_work_pool_tests)
 
 # Requires a local player-owned module; built explicitly, never run by public CI.
 # Requires a local player-owned module; built explicitly, never run by public CI.
@@ -395,23 +388,6 @@ target_include_directories(bluewake_native_j3d_test PRIVATE
     ${BLUEWAKE_REPO_ROOT}/ref/recompcore/Source/Core/Core/PowerPC/StaticRecomp)
 target_link_libraries(bluewake_native_j3d_test PRIVATE gxruntime ${CMAKE_DL_LIBS})
 target_compile_options(bluewake_native_j3d_test PRIVATE -ffp-contract=off)
-
-add_executable(bluewake_native_math_guard_test
-    ${BLUEWAKE_REPO_ROOT}/tests/native_math_guard_test.c
-    ${BLUEWAKE_REPO_ROOT}/cmake/composite/native_math.c
-    ${BLUEWAKE_REPO_ROOT}/cmake/composite/native_work_pool.c)
-target_include_directories(bluewake_native_math_guard_test PRIVATE ${BLUEWAKE_REPO_ROOT}/cmake/composite)
-target_link_libraries(bluewake_native_math_guard_test PRIVATE gxruntime)
-target_compile_options(bluewake_native_math_guard_test PRIVATE -ffp-contract=off)
-add_test(NAME bluewake_native_math_guard_test COMMAND bluewake_native_math_guard_test)
-
-if(NOT WIN32)
-    find_package(Threads REQUIRED)
-    target_link_libraries(bluewake_native_math_test PRIVATE Threads::Threads)
-    target_link_libraries(bluewake_native_math_guard_test PRIVATE Threads::Threads)
-    add_test(NAME bluewake_native_math_workers_test COMMAND bluewake_native_math_guard_test)
-    set_tests_properties(bluewake_native_math_workers_test PROPERTIES ENVIRONMENT "BLUEWAKE_NATIVE_WORKERS=2")
-endif()
 
 add_executable(bluewake_native_game_math_guard_test
     ${BLUEWAKE_REPO_ROOT}/tests/native_game_math_guard_test.c
