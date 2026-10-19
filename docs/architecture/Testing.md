@@ -119,6 +119,11 @@ tree for private/generated artifact types and directories, validates the
 dependency lock, requires core planning/status files, and rejects unresolved
 merge markers. It is intentionally fast and does not compile the project.
 
+| Check | Source references | What it protects | Execution model |
+| --- | --- | --- | --- |
+| Repository audit | [`scripts/audit_repo.sh`](../../scripts/audit_repo.sh), [audit workflow](../../.github/workflows/audit.yml) | Tracked-tree safety, dependency-lock validity, required records, and merge-marker detection | Shell check run locally and in public CI |
+| Attribution | [`scripts/check_attribution.py`](../../scripts/check_attribution.py), [attribution workflow](../../.github/workflows/attribution.yml) | Human commit authorship and permitted co-author metadata | Python check run by its dedicated public-CI workflow |
+
 The attribution workflow separately checks commit authors and co-authors. A
 repository-audit pass does not imply that attribution passed, and neither
 implies that compiled tests ran.
@@ -131,14 +136,14 @@ logic, and compare generated output, manifests, commands, or failure behavior.
 
 Representative groups include:
 
-| Area | Source references | What they protect |
-| --- | --- | --- |
-| Composite preparation | [`test_composite.py`](../../tests/test_composite.py), [`test_prepare.py`](../../tests/test_prepare.py), [`test_return_ranges.py`](../../tests/test_return_ranges.py) | Generated-source composition, deterministic preparation, and address/range rules |
-| Native preparation | [`native_math_source_test.py`](../../tests/native_math_source_test.py), [`test_direct_calls.py`](../../tests/test_direct_calls.py), [`test_inline_gpr.py`](../../tests/test_inline_gpr.py) | Certified source transformations and host boundaries |
-| Timing and checkpoints | [`test_guest_clock.py`](../../tests/test_guest_clock.py), [`test_cycle_invariance.py`](../../tests/test_cycle_invariance.py), [`test_guest_checkpoints.py`](../../tests/test_guest_checkpoints.py) | Clock contracts and completeness of comparison evidence |
-| Builder behavior | [`test_mac_package.py`](../../tests/test_mac_package.py), [`test_windows_training.py`](../../tests/test_windows_training.py), [`test_linux_ci_container.py`](../../tests/test_linux_ci_container.py) | Platform command construction, cache selection, interrupted builds, and packaging inputs |
-| Benchmark tooling | [`test_bench_tour.py`](../../tests/test_bench_tour.py), [`test_sample_owners.py`](../../tests/test_sample_owners.py), [`test_one_game_guard.py`](../../tests/test_one_game_guard.py) | Synthetic logs, ownership, process isolation, and complete measurement grids |
-| Import and storage | [`wwhd_disc_fixture.py`](../../tests/wwhd_disc_fixture.py), [`wwhd_disc_import_test.py`](../../tests/wwhd_disc_import_test.py), [`wwhd_staging_recovery_test.py`](../../tests/wwhd_staging_recovery_test.py) | Generated disc structures, decoding, staging, cancellation, and recovery |
+| Area | Source references | What they protect | Execution model |
+| --- | --- | --- | --- |
+| Composite preparation | [`test_composite.py`](../../tests/test_composite.py), [`test_prepare.py`](../../tests/test_prepare.py), [`test_return_ranges.py`](../../tests/test_return_ranges.py) | Generated-source composition, deterministic preparation, and address/range rules | Direct Python scripts with synthetic temporary inputs |
+| Native preparation | [`native_math_source_test.py`](../../tests/native_math_source_test.py), [`test_direct_calls.py`](../../tests/test_direct_calls.py), [`test_inline_gpr.py`](../../tests/test_inline_gpr.py) | Certified source transformations and host boundaries | Direct Python scripts over source or generated text |
+| Timing and checkpoints | [`test_guest_clock.py`](../../tests/test_guest_clock.py), [`test_cycle_invariance.py`](../../tests/test_cycle_invariance.py), [`test_guest_checkpoints.py`](../../tests/test_guest_checkpoints.py) | Clock contracts and completeness of comparison evidence | Direct Python scripts over source and synthetic logs |
+| Builder behavior | [`test_mac_package.py`](../../tests/test_mac_package.py), [`test_windows_training.py`](../../tests/test_windows_training.py), [`test_linux_ci_container.py`](../../tests/test_linux_ci_container.py) | Platform command construction, cache selection, interrupted builds, and packaging inputs | Direct Python scripts with mocked or temporary build state |
+| Benchmark tooling | [`test_bench_tour.py`](../../tests/test_bench_tour.py), [`test_sample_owners.py`](../../tests/test_sample_owners.py), [`test_one_game_guard.py`](../../tests/test_one_game_guard.py) | Synthetic logs, ownership, process isolation, and complete measurement grids | Direct Python scripts with synthetic processes and measurements |
+| Import and storage | [`wwhd_disc_fixture.py`](../../tests/wwhd_disc_fixture.py), [`wwhd_disc_import_test.py`](../../tests/wwhd_disc_import_test.py), [`wwhd_staging_recovery_test.py`](../../tests/wwhd_staging_recovery_test.py) | Generated disc structures, decoding, staging, cancellation, and recovery | Fixture generator plus direct Python integration scripts |
 
 Most of these tests use Python's standard assertion or `unittest` behavior and
 are invoked as scripts, for example `python3 tests/test_bench_tour.py`. The
@@ -149,20 +154,19 @@ compiled executable.
 ### Compiled component tests
 
 C, C++, Objective-C, and Objective-C++ files under `tests/` exercise production
-headers and sources with synthetic inputs. CMake creates one executable per
-contract or closely related group, links only the dependencies it needs, and
-registers it with CTest through `add_test`.
+headers and sources with synthetic inputs. For the ordinary component suite,
+CMake creates one executable per contract or closely related group, links only
+the dependencies it needs, and registers it with CTest through `add_test`.
 
-The compiled suite covers, among other areas:
-
-- CPU scheduling, cycles, interrupt sources, callbacks, and ABI boundaries;
-- guest memory aliases, gather/inline-memory paths, and dispatch loops;
-- audio, ARAM DMA, cards, save states, atomic files, and shutdown;
-- input, controller mapping, haptics, menus, camera, and motion;
-- native math/vector/skinning/J3D guard behavior;
-- renderer shared state, worker identity, frame interpolation, and pipeline
-  shutdown; and
-- HD texture/disc import, cancellation, output staging, and recovery.
+| Area | Source references | What they protect | Execution model |
+| --- | --- | --- | --- |
+| Scheduling and ABI | [`scheduler_contract_test.c`](../../tests/scheduler_contract_test.c), [`cycle_domain_test.c`](../../tests/cycle_domain_test.c), [`interrupt_sources_test.c`](../../tests/interrupt_sources_test.c), [`cpu_boundary_test.c`](../../tests/cpu_boundary_test.c) | CPU scheduling, cycle accounting, interrupt sources, callbacks, and ABI boundaries | Compiled synthetic harnesses registered with CTest |
+| Guest memory and dispatch | [`external_memory_test.c`](../../tests/external_memory_test.c), [`gather_memory_test.c`](../../tests/gather_memory_test.c), [`inline_gpr_memory_test.c`](../../tests/inline_gpr_memory_test.c), [`composite_dispatch_loop_test.c`](../../tests/composite_dispatch_loop_test.c) | Memory aliases, gather and inline-memory paths, and dispatch loops | Compiled harnesses; CMake may generate separate mode variants |
+| Services and persistence | [`audio_dma_stereo_test.c`](../../tests/audio_dma_stereo_test.c), [`aram_dma_contract_test.c`](../../tests/aram_dma_contract_test.c), [`card_runtime_test.c`](../../tests/card_runtime_test.c), [`save_state_test.c`](../../tests/save_state_test.c) | Audio, ARAM DMA, cards, save states, and service state | Compiled synthetic service tests registered with CTest |
+| Input and camera | [`desktop_controller_test.cpp`](../../tests/desktop_controller_test.cpp), [`haptics_test.c`](../../tests/haptics_test.c), [`mouse_motion_test.c`](../../tests/mouse_motion_test.c), [`dpad_menus_test.c`](../../tests/dpad_menus_test.c) | Controller mapping, haptics, menus, camera, and motion | Compiled harnesses, sometimes repeated with CTest arguments |
+| Native guards | [`native_math_guard_test.c`](../../tests/native_math_guard_test.c), [`native_vec_guard_test.c`](../../tests/native_vec_guard_test.c), [`native_skin_guard_test.c`](../../tests/native_skin_guard_test.c), [`native_j3d_guard_test.c`](../../tests/native_j3d_guard_test.c) | Native math, vector, skinning, and J3D guard behavior | Compiled focused tests against production native implementations |
+| Renderer integration | [`renderer_shared_flags_test.cpp`](../../tests/renderer_shared_flags_test.cpp), [`render_worker_identity_test.cpp`](../../tests/render_worker_identity_test.cpp), [`fifo_trace_worker_test.cpp`](../../tests/fifo_trace_worker_test.cpp) | Shared renderer state, worker identity, and trace ownership | Compiled tests linked to the real runtime/renderer targets |
+| HD import | [`wwhd_cancellation_test.cpp`](../../tests/wwhd_cancellation_test.cpp), [`wwhd_import_job_test.cpp`](../../tests/wwhd_import_job_test.cpp), [`wwhd_output_staging_test.cpp`](../../tests/wwhd_output_staging_test.cpp), [`wwhd_wiiu_disc_test.cpp`](../../tests/wwhd_wiiu_disc_test.cpp) | Disc and texture import, cancellation, staging, and recovery | Compiled fixtures and import components registered with CTest |
 
 Tests often compile a production `.c` file directly beside the harness. This
 keeps the exercised logic identical to the application while avoiding the full
@@ -171,6 +175,12 @@ real `gxruntime`, Aurora, or gxcore targets because the integration boundary is
 the behavior under test.
 
 ### Generated and conditional tests
+
+| Area | Source references | What they protect | Execution model |
+| --- | --- | --- | --- |
+| Generated module contracts | [`generated_scheduler_contract_test.c`](../../tests/generated_scheduler_contract_test.c), [`generated_aram_stream_contract_test.c`](../../tests/generated_aram_stream_contract_test.c), [`generated_dvd_callback_contract_test.c`](../../tests/generated_dvd_callback_contract_test.c), [registration](../../runtime/host/CMakeLists.txt#L664-L708) | Scheduler, ARAM stream, and DVD callback behavior in a locally generated module | Registered with CTest only when the composite module exists at configure time |
+| Fast-block comparison | [`fast_blocks_test.c`](../../tests/fast_blocks_test.c), [host target](../../runtime/host/CMakeLists.txt#L289-L293) | Selected translated blocks against the ordinary dispatch path | `EXCLUDE_FROM_ALL`; explicitly built and run with a private module |
+| Native differential oracles | [`native_math_test.c`](../../tests/native_math_test.c), [`native_vec_test.c`](../../tests/native_vec_test.c), [`native_skin_test.c`](../../tests/native_skin_test.c) | Candidate native implementations against translated behavior | Explicit developer targets with locally generated inputs |
 
 Some targets can compile publicly but can run only when a local generated
 artifact exists. In `runtime/host/CMakeLists.txt`, the generated scheduler,
@@ -188,6 +198,13 @@ Native differential oracles and the fast-block comparison follow this pattern.
 
 ### Runtime and renderer tests
 
+| Area | Source references | What they protect | Execution model |
+| --- | --- | --- | --- |
+| Shared state and workers | [`renderer_shared_flags_test.cpp`](../../tests/renderer_shared_flags_test.cpp), [`render_worker_identity_test.cpp`](../../tests/render_worker_identity_test.cpp), [`fifo_trace_worker_test.cpp`](../../tests/fifo_trace_worker_test.cpp) | Shared renderer flags, worker identity, and trace ownership | BlueWake-owned compiled tests linked to real renderer targets and registered with CTest |
+| Presentation and lifecycle | [frame interpolation](https://github.com/chrissotraidis/RecompCore/blob/338a3dbcdd384142f0fe40db44e0cd1d1b0c61e4/GXRuntime/graphics/aurora/tests/frame_interp_test.cpp), [pipeline shutdown](https://github.com/chrissotraidis/RecompCore/blob/338a3dbcdd384142f0fe40db44e0cd1d1b0c61e4/GXRuntime/graphics/aurora/tests/pipeline_shutdown_test.cpp), [audio sink](https://github.com/chrissotraidis/RecompCore/blob/338a3dbcdd384142f0fe40db44e0cd1d1b0c61e4/GXRuntime/graphics/aurora/tests/audio_sink_test.cpp) | Frame interpolation, pipeline shutdown, and audio delivery through the pinned runtime | Pinned RecompCore tests compiled through the host graph and registered with CTest |
+| Frontend and texture encoding | [frontend replay](https://github.com/chrissotraidis/RecompCore/blob/338a3dbcdd384142f0fe40db44e0cd1d1b0c61e4/GXRuntime/graphics/frontend/tests/frontend_replay_test.cpp), [texture encoding](https://github.com/chrissotraidis/RecompCore/blob/338a3dbcdd384142f0fe40db44e0cd1d1b0c61e4/GXRuntime/graphics/gxcore/tests/gxcore_texture_encode_test.cpp), [Windows registration](../../windows/CMakeLists.txt#L420-L439) | Frontend command replay and texture output through real renderer components | Pinned RecompCore tests registered by the Windows graph |
+| Pixel GPU oracles | [`gxcore_alpha_pixels_test.cpp`](../../tests/gxcore_alpha_pixels_test.cpp), [`gxcore_indirect_pixels_test.cpp`](../../tests/gxcore_indirect_pixels_test.cpp), [`gxcore_ztexture_pixels_test.cpp`](../../tests/gxcore_ztexture_pixels_test.cpp), [target definitions](../../runtime/host/CMakeLists.txt#L604-L662) | Texture decoding, TEV operations, depth behavior, and EFB copies through gxcore/Aurora | Manual executables requiring a usable graphics backend |
+
 BlueWake reuses selected tests from the pinned RecompCore checkout when the
 actual linked runtime or renderer behavior is the contract. The host CMake
 graph can build Aurora/gxcore fixtures for frame interpolation, audio sink,
@@ -201,6 +218,12 @@ target definition, CTest registration, and CI target list together determine
 whether a test is automatic.
 
 ### Packaging and process tests
+
+| Area | Source references | What they protect | Execution model |
+| --- | --- | --- | --- |
+| Process lifecycle | [`process_close_test.c`](../../tests/process_close_test.c), [`launch_marker_test.c`](../../tests/launch_marker_test.c) | Child-process closure, launch state, and restart boundaries | Compiled process tests registered by supported host graphs |
+| Atomic filesystem changes | [`atomic_file_test.c`](../../tests/atomic_file_test.c), [`atomic_copy_race_test.c`](../../tests/atomic_copy_race_test.c), [`host_state_save_failure_test.c`](../../tests/host_state_save_failure_test.c) | Replacement, concurrent copies, and failed state persistence | Compiled tests using temporary owned output paths |
+| AppImage packaging | [`make_appimage.sh`](../../scripts/linux/make_appimage.sh), [`check_appimage_abi.py`](../../scripts/linux/check_appimage_abi.py), [Linux CI fixture](../../.github/workflows/linux-host.yml#L91-L103) | Package layout, ABI ceiling, launch smoke, and zsync output | Disc-free synthetic fixture built and checked in Linux CI |
 
 Some failures appear only across process or filesystem boundaries. These tests
 use real child processes, temporary output directories, generated fixtures,
