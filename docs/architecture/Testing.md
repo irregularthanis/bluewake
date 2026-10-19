@@ -131,14 +131,14 @@ logic, and compare generated output, manifests, commands, or failure behavior.
 
 Representative groups include:
 
-| Area | Examples | What they protect |
+| Area | Source references | What they protect |
 | --- | --- | --- |
-| Composite preparation | `test_composite.py`, `test_prepare.py`, `test_return_ranges.py` | Generated-source composition, deterministic preparation, and address/range rules |
-| Native preparation | `native_*_source_test.py`, `test_direct_calls.py`, `test_inline_gpr.py` | Certified source transformations and host boundaries |
-| Timing and checkpoints | `test_guest_clock.py`, `test_cycle_invariance.py`, `test_guest_checkpoints.py` | Clock contracts and completeness of comparison evidence |
-| Builder behavior | `test_mac_package.py`, `test_windows_training.py`, `test_linux_ci_container.py` | Platform command construction, cache selection, interrupted builds, and packaging inputs |
-| Benchmark tooling | `test_bench_tour.py`, `test_sample_owners.py`, `test_one_game_guard.py` | Synthetic logs, ownership, process isolation, and complete measurement grids |
-| Import and storage | `wwhd_disc_fixture.py`, `wwhd_disc_import_test.py`, `wwhd_staging_recovery_test.py` | Generated disc structures, decoding, staging, cancellation, and recovery |
+| Composite preparation | [`test_composite.py`](../../tests/test_composite.py), [`test_prepare.py`](../../tests/test_prepare.py), [`test_return_ranges.py`](../../tests/test_return_ranges.py) | Generated-source composition, deterministic preparation, and address/range rules |
+| Native preparation | [`native_math_source_test.py`](../../tests/native_math_source_test.py), [`test_direct_calls.py`](../../tests/test_direct_calls.py), [`test_inline_gpr.py`](../../tests/test_inline_gpr.py) | Certified source transformations and host boundaries |
+| Timing and checkpoints | [`test_guest_clock.py`](../../tests/test_guest_clock.py), [`test_cycle_invariance.py`](../../tests/test_cycle_invariance.py), [`test_guest_checkpoints.py`](../../tests/test_guest_checkpoints.py) | Clock contracts and completeness of comparison evidence |
+| Builder behavior | [`test_mac_package.py`](../../tests/test_mac_package.py), [`test_windows_training.py`](../../tests/test_windows_training.py), [`test_linux_ci_container.py`](../../tests/test_linux_ci_container.py) | Platform command construction, cache selection, interrupted builds, and packaging inputs |
+| Benchmark tooling | [`test_bench_tour.py`](../../tests/test_bench_tour.py), [`test_sample_owners.py`](../../tests/test_sample_owners.py), [`test_one_game_guard.py`](../../tests/test_one_game_guard.py) | Synthetic logs, ownership, process isolation, and complete measurement grids |
+| Import and storage | [`wwhd_disc_fixture.py`](../../tests/wwhd_disc_fixture.py), [`wwhd_disc_import_test.py`](../../tests/wwhd_disc_import_test.py), [`wwhd_staging_recovery_test.py`](../../tests/wwhd_staging_recovery_test.py) | Generated disc structures, decoding, staging, cancellation, and recovery |
 
 Most of these tests use Python's standard assertion or `unittest` behavior and
 are invoked as scripts, for example `python3 tests/test_bench_tour.py`. The
