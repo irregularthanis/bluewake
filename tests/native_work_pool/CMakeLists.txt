@@ -70,4 +70,24 @@ if(NOT WIN32)
         ENVIRONMENT "BLUEWAKE_NATIVE_WORKERS=4;BLUEWAKE_NATIVE_WORKER_FAIL_AFTER=2"
         LABELS "native-work-pool;fast"
         TIMEOUT 15)
+
+    # Load and unload the production pool as a DSO repeatedly. Its destructor
+    # must join every worker before dlclose unmaps their code.
+    add_library(bluewake_native_work_pool_fixture SHARED
+        ${BLUEWAKE_POOL_REPO_ROOT}/tests/native_work_pool_fixture.c
+        ${BLUEWAKE_POOL_REPO_ROOT}/cmake/composite/native_work_pool.c)
+    target_include_directories(bluewake_native_work_pool_fixture PRIVATE
+        ${BLUEWAKE_POOL_REPO_ROOT}/cmake/composite)
+    target_link_libraries(bluewake_native_work_pool_fixture PRIVATE Threads::Threads m)
+
+    add_executable(bluewake_native_work_pool_lifecycle_test
+        ${BLUEWAKE_POOL_REPO_ROOT}/tests/native_work_pool_lifecycle_test.c)
+    target_link_libraries(bluewake_native_work_pool_lifecycle_test PRIVATE ${CMAKE_DL_LIBS})
+    add_test(NAME bluewake_native_work_pool_lifecycle_test
+        COMMAND bluewake_native_work_pool_lifecycle_test
+            $<TARGET_FILE:bluewake_native_work_pool_fixture>)
+    set_tests_properties(bluewake_native_work_pool_lifecycle_test PROPERTIES
+        ENVIRONMENT "BLUEWAKE_NATIVE_WORKERS=2"
+        LABELS "native-work-pool;lifecycle"
+        TIMEOUT 30)
 endif()
