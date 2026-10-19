@@ -178,6 +178,21 @@ int main(void) {
         c = state(entry); c.ram = NULL; decline(c, entry);
     }
     array_boundaries();
+    BluewakeNativeMathStatsV1 stats = {0};
+    assert(!bluewake_composite_native_math_stats_v1(NULL, sizeof stats));
+    assert(!bluewake_composite_native_math_stats_v1(&stats, sizeof stats - 1));
+    assert(bluewake_composite_native_math_stats_v1(&stats, sizeof stats));
+    assert(stats.version == 1 && stats.size == sizeof stats);
+    assert(stats.native_hits[3] > 0 && stats.native_fallbacks[3] > 0);
+    assert(stats.array_vectors > 0 && stats.array_max_vectors == 4096);
+    assert(stats.completed_batches == bluewake_parallel_batches());
+#if !defined(_WIN32)
+    const char* configured = getenv("BLUEWAKE_NATIVE_WORKERS");
+    if (configured && atoi(configured) > 0) {
+        assert(stats.requested_workers > 0 && stats.effective_workers > 0);
+        assert(stats.worker_items > 0);
+    }
+#endif
     printf("Matrix guards: identity/non-identity, boundary fallback and %llu parallel batches pass\n", bluewake_parallel_batches());
 #if !defined(_WIN32)
     const char* workers = getenv("BLUEWAKE_NATIVE_WORKERS");
