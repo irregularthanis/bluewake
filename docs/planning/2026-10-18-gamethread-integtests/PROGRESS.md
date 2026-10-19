@@ -9,7 +9,7 @@
 
 ### M0: Baseline and qualification contracts
 
-Architecture: [runtime entities](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#runtime-entities) · [guest execution loop](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution).
+Architecture: [runtime entities](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#runtime-entities) · [guest execution loop](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution).
 
 - [ ] M0-T01: Record revisions, tests, exports, fixtures and existing failures.
 - [ ] M0-T02: Trace native/worker selection and both CMake entry points.
@@ -18,7 +18,7 @@ Architecture: [runtime entities](https://github.com/irregularthanis/bluewake/blo
 
 ### M1: Source-only test build integration (depends: M0)
 
-Architecture: [Linux build flow](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Build.md#linux-builder) · [compile/package flow](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Build.md#7-compile-and-package).
+Architecture: [Linux build flow](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Build.md#linux-builder) · [compile/package flow](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Build.md#7-compile-and-package).
 
 - [ ] M1-T01: Extract shared native-math CMake registration; preserve targets/flags.
 - [ ] M1-T02: Add standalone real-pool build without renderer dependencies.
@@ -27,7 +27,7 @@ Architecture: [Linux build flow](https://github.com/irregularthanis/bluewake/blo
 
 ### M2: Guard and differential boundary coverage (depends: M1)
 
-Architecture: [CPUState](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#cpustate-layout) · [guest address resolution](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-to-host-address-resolution).
+Architecture: [CPUState](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#cpustate-layout) · [guest address resolution](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-to-host-address-resolution).
 
 - [ ] M2-T01: Add threshold, uneven, non-identity, sentinel and invalid-input cases.
 - [ ] M2-T02: Extend three-path oracle and guest-state mismatch diagnostics.
@@ -36,7 +36,7 @@ Architecture: [CPUState](https://github.com/irregularthanis/bluewake/blob/4a68ec
 
 ### M3: Worker lifecycle and opt-in execution diagnostics (depends: M2)
 
-Architecture: [module loading and ABI](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-loading-and-abi) · [shutdown](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#shutdown).
+Architecture: [module loading and ABI](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-loading-and-abi) · [shutdown](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#shutdown).
 
 - [ ] M3-T01: Inject creation failures; verify effective worker counts.
 - [ ] M3-T02: Add 1,000-submission stress and repeated DSO lifecycle tests.
@@ -45,7 +45,7 @@ Architecture: [module loading and ABI](https://github.com/irregularthanis/bluewa
 
 ### M4: Sanitizer and regression CI lanes (depends: M3)
 
-Architecture: [Linux build flow](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Build.md#linux-builder).
+Architecture: [Linux build flow](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Build.md#linux-builder).
 
 - [ ] M4-T01: Add separate standalone TSan and ASan/UBSan jobs.
 - [ ] M4-T02: Run fast C/Python regressions; preserve Windows checks.
@@ -54,7 +54,7 @@ Architecture: [Linux build flow](https://github.com/irregularthanis/bluewake/blo
 
 ### M5: Qualification runner and report foundation (depends: M0)
 
-Architecture: [host lifecycle](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#host-lifecycle) · [runtime persistence](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#runtime-inputs-and-persistence).
+Architecture: [host lifecycle](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#host-lifecycle) · [runtime persistence](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#runtime-inputs-and-persistence).
 
 - [ ] M5-T01: Define versioned report/manifest and status aggregation.
 - [ ] M5-T02: Implement isolated subprocess groups, timeouts, cleanup and outputs.
@@ -63,7 +63,7 @@ Architecture: [host lifecycle](https://github.com/irregularthanis/bluewake/blob/
 
 ### M6: Deterministic gameplay worker comparisons (depends: M3, M5)
 
-Architecture: [guest execution loop](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution) · [guest time and exceptions](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-time-callbacks-and-exceptions).
+Architecture: [guest execution loop](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution) · [guest time and exceptions](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-time-callbacks-and-exceptions).
 
 - [ ] M6-T01: Pass explicit worker/settings overrides after sanitization.
 - [ ] M6-T02: Validate complete modes, scenes, retraces and checkpoint grids.
@@ -72,7 +72,7 @@ Architecture: [guest execution loop](https://github.com/irregularthanis/bluewake
 
 ### M7: Portable save acceptance (depends: M6)
 
-Architecture: [memory card and SRAM](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#memory-card-and-sram) · [runtime persistence](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#runtime-inputs-and-persistence).
+Architecture: [memory card and SRAM](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#memory-card-and-sram) · [runtime persistence](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#runtime-inputs-and-persistence).
 
 - [ ] M7-T01: Parameterize inputs; preserve legacy save entry point.
 - [ ] M7-T02: Replace stale constants with bounded baseline-validated predicates.
@@ -81,7 +81,7 @@ Architecture: [memory card and SRAM](https://github.com/irregularthanis/bluewake
 
 ### M8: Game-thread metrics and topology (depends: M3, M6)
 
-Architecture: [guest time and exceptions](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-time-callbacks-and-exceptions) · [EFB/copies/VI presentation](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#efb-copies-and-vi-presentation).
+Architecture: [guest time and exceptions](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-time-callbacks-and-exceptions) · [EFB/copies/VI presentation](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#efb-copies-and-vi-presentation).
 
 - [ ] M8-T01: Add bounded game-update/job timing and overflow detection.
 - [ ] M8-T02: Discover real TIDs, topology, affinities and task counters.
@@ -90,7 +90,7 @@ Architecture: [guest time and exceptions](https://github.com/irregularthanis/blu
 
 ### M9: Multicore load and soak orchestration (depends: M7, M8)
 
-Architecture: [runtime entities](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#runtime-entities) · [graphics synchronization](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#synchronization-and-completion).
+Architecture: [runtime entities](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#runtime-entities) · [graphics synchronization](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#synchronization-and-completion).
 
 - [ ] M9-T01: Add deterministic pressure helper with scoped cleanup/placement.
 - [ ] M9-T02: Run interleaved renderer/worker/core/SMT pressure matrix.
@@ -99,7 +99,7 @@ Architecture: [runtime entities](https://github.com/irregularthanis/bluewake/blo
 
 ### M10: Steam Deck qualification and handoff (depends: M4, M9)
 
-Architecture: [runtime lifecycle](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#runtime-lifecycle) · [audio/DSP/ARAM](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#audio-dsp-and-aram).
+Architecture: [runtime lifecycle](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#runtime-lifecycle) · [audio/DSP/ARAM](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#audio-dsp-and-aram).
 
 - [ ] M10-T01: Run source-only/private oracle lanes with binary provenance.
 - [ ] M10-T02: Complete Deck repeatability, rendered/save/load/soak checks.

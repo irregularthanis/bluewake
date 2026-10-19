@@ -37,13 +37,13 @@ No implementation or passing tests are claimed.
 | Benchmark tour | Explicit settings, complete checkpoint/route validation |
 | Save acceptance | Portable inputs and current route predicates |
 
-Architecture: [runtime entities](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#runtime-entities) · [interaction boundaries](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#interaction-boundaries). Source changes live in TECH_PLAN.
+Architecture: [runtime entities](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#runtime-entities) · [interaction boundaries](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#interaction-boundaries). Source changes live in TECH_PLAN.
 
 ## Requirements
 
 ### FR-01 — Differential correctness · P0
 
-Architecture: [CPUState](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#cpustate-layout) · [guest-state ownership](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#ownership-and-address-model).
+Architecture: [CPUState](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#cpustate-layout) · [guest-state ownership](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#ownership-and-address-model).
 
 **Story:** Compare original translation, serial-native and parallel-native execution to detect semantic regressions.
 
@@ -58,7 +58,7 @@ Acceptance:
 
 ### FR-02 — Thresholds and partitions · P0
 
-Architecture: [module contents](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-contents) · [guest-state ownership](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#ownership-and-address-model).
+Architecture: [module contents](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-contents) · [guest-state ownership](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#ownership-and-address-model).
 
 **Story:** Detect skipped, duplicate and out-of-range work.
 
@@ -73,7 +73,7 @@ Acceptance:
 
 ### FR-03 — Guards and fallback · P0
 
-Architecture: [guest address resolution](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-to-host-address-resolution) · [device deadlines](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#guest-time-and-deadlines).
+Architecture: [guest address resolution](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-to-host-address-resolution) · [device deadlines](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#guest-time-and-deadlines).
 
 **Story:** Unsafe native attempts decline without corrupting subsequent translated execution.
 
@@ -87,7 +87,7 @@ Acceptance:
 
 ### FR-04 — Lifecycle and publication · P0
 
-Architecture: [module loading and ABI](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-loading-and-abi) · [shutdown](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#shutdown).
+Architecture: [module loading and ABI](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-loading-and-abi) · [shutdown](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#shutdown).
 
 **Story:** Completed calls leave no unfinished or stale worker activity.
 
@@ -103,7 +103,7 @@ Acceptance:
 
 ### FR-05 — Configuration and failures · P0
 
-Architecture: [host lifecycle](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#host-lifecycle) · [module contents](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-contents).
+Architecture: [host lifecycle](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#host-lifecycle) · [module contents](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-contents).
 
 **Story:** Missing resources preserve correct results and bounded completion.
 
@@ -117,7 +117,7 @@ Acceptance:
 
 ### FR-06 — Execution evidence · P0
 
-Architecture: [module loading and ABI](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-loading-and-abi) · [interaction boundaries](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#interaction-boundaries).
+Architecture: [module loading and ABI](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-loading-and-abi) · [interaction boundaries](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#interaction-boundaries).
 
 **Story:** Reviewers can distinguish parallel work from silent serial fallback.
 
@@ -132,7 +132,7 @@ Acceptance:
 
 ### FR-07 — Gameplay smoke checks · P0 for device qualification
 
-Architecture: [guest execution loop](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution) · [input](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#input) · [graphics synchronization](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#synchronization-and-completion).
+Architecture: [guest execution loop](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution) · [input](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#input) · [graphics synchronization](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#synchronization-and-completion).
 
 **Story:** Equivalent worker configurations preserve complete scripted routes.
 
@@ -150,7 +150,7 @@ Acceptance:
 
 ### FR-08 — Save/quit/reload · P1; required before new-offload promotion
 
-Architecture: [memory card and SRAM](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#memory-card-and-sram) · [runtime persistence](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#runtime-inputs-and-persistence).
+Architecture: [memory card and SRAM](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#memory-card-and-sram) · [runtime persistence](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#runtime-inputs-and-persistence).
 
 **Story:** Optimized execution preserves saving and restored progress.
 
@@ -165,7 +165,7 @@ Acceptance:
 
 ### FR-09 — Multicore load · P0 for multicore qualification
 
-Architecture: [guest execution loop](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution) · [guest time and exceptions](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-time-callbacks-and-exceptions) · [EFB/copies/VI presentation](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#efb-copies-and-vi-presentation) · [graphics synchronization](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#synchronization-and-completion).
+Architecture: [guest execution loop](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution) · [guest time and exceptions](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-time-callbacks-and-exceptions) · [EFB/copies/VI presentation](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#efb-copies-and-vi-presentation) · [graphics synchronization](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#synchronization-and-completion).
 
 **Story:** Measure critical-path improvement under CPU contention while preserving results.
 

@@ -6,11 +6,11 @@
 **Directory:** `docs/planning/2026-10-18-gamethread-integtests/`
 **Contracts:** [PRD.md](PRD.md) · **Tasks:** [PROGRESS.md](PROGRESS.md)
 
-Architecture: [runtime entities](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#runtime-entities) · [interaction boundaries](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#interaction-boundaries). Links pin the inspected revision; worker-pool details remain in source.
+Architecture: [runtime entities](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#runtime-entities) · [interaction boundaries](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#interaction-boundaries). Links pin the inspected revision; worker-pool details remain in source.
 
 ## Boundaries
 
-- Keep one authoritative guest CPU stream: [guest-state ownership](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#ownership-and-address-model).
+- Keep one authoritative guest CPU stream: [guest-state ownership](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#ownership-and-address-model).
 - Change tests and opt-in diagnostics; preserve computation, timing mode and worker defaults.
 - Windows stays serial.
 - Public CI uses synthetic data. Own-disc modules/cards/states stay local.
@@ -30,34 +30,34 @@ flowchart TD
     J --> R["Commit guest<br>registers and<br>cycles"]
 ```
 
-Parallelism stays inside a validated native operation. Workers must not execute arbitrary guest blocks or access CPU/device state. Flow: [guest execution loop](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution) → [translated dispatch](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#translated-code-dispatch) → [CPUState](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#cpustate-layout).
+Parallelism stays inside a validated native operation. Workers must not execute arbitrary guest blocks or access CPU/device state. Flow: [guest execution loop](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution) → [translated dispatch](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#translated-code-dispatch) → [CPUState](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#cpustate-layout).
 
 ## Concrete changes
 
 | File | Change | FR | Architecture boundary |
 |---|---|---|---|
-| `cmake/native_math_tests.cmake` | Share guard/oracle/worker target definitions | 1–6 | [Linux build flow](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Build.md#linux-builder) |
-| `linux/CMakeLists.txt`, `runtime/host/CMakeLists.txt` | Include shared definitions; preserve target names/link flags | 1–6 | [Linux build flow](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Build.md#linux-builder) |
-| `tests/native_work_pool/CMakeLists.txt` | Standalone build of the real pool; no renderer | 2,4,5 | [module contents](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-contents) |
-| `tests/native_work_pool_test.c` | Partition, publication, stress and configuration cases | 2,4,5 | [guest-state ownership](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#ownership-and-address-model) |
-| `tests/native_work_pool_fixture.c`, `tests/native_work_pool_lifecycle_test.c` | Real-pool DSO; repeated load/run/unload | 4 | [module loading and ABI](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-loading-and-abi) |
-| `tests/native_math_guard_test.c`, `tests/native_math_test.c` | Thresholds, sentinels, guards, three-path oracle | 1–3,6 | [CPUState](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#cpustate-layout) |
-| `cmake/composite/native_work_pool.c/.h`, `native_math.c/.h` | Test-only seams; optional structured diagnostics | 4–6,9 | [interaction boundaries](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#interaction-boundaries) |
-| `cmake/composite/CMakeLists.txt` | Optional diagnostic exports; preserve CPU ABI | 6,9 | [module loading and ABI](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-loading-and-abi) |
-| `scripts/bench_tour.py`, `tests/test_bench_tour.py` | Explicit settings; strict evidence validation | 6,7 | [guest execution loop](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution) |
-| `scripts/qualify_gamethread.py` | Native/gameplay/load/soak commands | 6–9 | [runtime lifecycle](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#runtime-lifecycle) |
-| `scripts/gamethread_qualification/{report,process,linux}.py` | Schema, supervision, topology and metrics | 6–9 | [host lifecycle](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#host-lifecycle) |
-| `runtime/host/src/gamethread_metrics.c/.h`, `main.c` | Bounded opt-in events; actual game/worker TIDs | 9 | [guest execution loop](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution) |
-| `scripts/gamethread_load.c` | Deterministic compute pressure | 9 | [runtime entities](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#runtime-entities) |
-| `scripts/save_continue_acceptance.sh` | Explicit inputs; reuse supervisor; preserve entry point | 8 | [memory card and SRAM](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#memory-card-and-sram) |
-| `tests/test_gamethread_qualification.py` | Fake apps/logs, metrics, cleanup and status tests | 6–9 | [runtime persistence](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#runtime-inputs-and-persistence) |
-| Linux workflows | Explicit fast targets; standalone sanitizer lane | 1–6 | [compile/package flow](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Build.md#7-compile-and-package) |
+| `cmake/native_math_tests.cmake` | Share guard/oracle/worker target definitions | 1–6 | [Linux build flow](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Build.md#linux-builder) |
+| `linux/CMakeLists.txt`, `runtime/host/CMakeLists.txt` | Include shared definitions; preserve target names/link flags | 1–6 | [Linux build flow](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Build.md#linux-builder) |
+| `tests/native_work_pool/CMakeLists.txt` | Standalone build of the real pool; no renderer | 2,4,5 | [module contents](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-contents) |
+| `tests/native_work_pool_test.c` | Partition, publication, stress and configuration cases | 2,4,5 | [guest-state ownership](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#ownership-and-address-model) |
+| `tests/native_work_pool_fixture.c`, `tests/native_work_pool_lifecycle_test.c` | Real-pool DSO; repeated load/run/unload | 4 | [module loading and ABI](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-loading-and-abi) |
+| `tests/native_math_guard_test.c`, `tests/native_math_test.c` | Thresholds, sentinels, guards, three-path oracle | 1–3,6 | [CPUState](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#cpustate-layout) |
+| `cmake/composite/native_work_pool.c/.h`, `native_math.c/.h` | Test-only seams; optional structured diagnostics | 4–6,9 | [interaction boundaries](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#interaction-boundaries) |
+| `cmake/composite/CMakeLists.txt` | Optional diagnostic exports; preserve CPU ABI | 6,9 | [module loading and ABI](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-loading-and-abi) |
+| `scripts/bench_tour.py`, `tests/test_bench_tour.py` | Explicit settings; strict evidence validation | 6,7 | [guest execution loop](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution) |
+| `scripts/qualify_gamethread.py` | Native/gameplay/load/soak commands | 6–9 | [runtime lifecycle](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#runtime-lifecycle) |
+| `scripts/gamethread_qualification/{report,process,linux}.py` | Schema, supervision, topology and metrics | 6–9 | [host lifecycle](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#host-lifecycle) |
+| `runtime/host/src/gamethread_metrics.c/.h`, `main.c` | Bounded opt-in events; actual game/worker TIDs | 9 | [guest execution loop](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution) |
+| `scripts/gamethread_load.c` | Deterministic compute pressure | 9 | [runtime entities](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#runtime-entities) |
+| `scripts/save_continue_acceptance.sh` | Explicit inputs; reuse supervisor; preserve entry point | 8 | [memory card and SRAM](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#memory-card-and-sram) |
+| `tests/test_gamethread_qualification.py` | Fake apps/logs, metrics, cleanup and status tests | 6–9 | [runtime persistence](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#runtime-inputs-and-persistence) |
+| Linux workflows | Explicit fast targets; standalone sanitizer lane | 1–6 | [compile/package flow](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Build.md#7-compile-and-package) |
 
 All new names/snippets below are proposed, not implemented.
 
 ## 1. Test the actual pool
 
-Architecture: [module loading and ABI](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-loading-and-abi) · [shutdown](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#shutdown).
+Architecture: [module loading and ABI](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-loading-and-abi) · [shutdown](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#shutdown).
 
 Reuse `native_work_pool.c`; do not duplicate its scheduler.
 
@@ -88,7 +88,7 @@ Each worker configuration runs in a fresh process. Preserve current parser behav
 
 ## 2. Extend the native oracle
 
-Architecture: [CPUState](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#cpustate-layout) · [guest address resolution](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-to-host-address-resolution) · [guest time and exceptions](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-time-callbacks-and-exceptions).
+Architecture: [CPUState](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#cpustate-layout) · [guest address resolution](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-to-host-address-resolution) · [guest time and exceptions](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-time-callbacks-and-exceptions).
 
 Compare the same seeded corpus against:
 
@@ -122,7 +122,7 @@ Reuse `cpu_state_compare.h`. Normalize documented host identity only; keep guest
 
 ## 3. Candidate-owned diagnostics
 
-Architecture: [module loading and ABI](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-loading-and-abi) · [interaction boundaries](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#interaction-boundaries).
+Architecture: [module loading and ABI](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GameModule.md#module-loading-and-abi) · [interaction boundaries](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Runtime.md#interaction-boundaries).
 
 Propose an optional versioned export:
 
@@ -150,7 +150,7 @@ int bluewake_composite_native_math_stats_v1(
 
 ## 4. Fix benchmark integration
 
-Architecture: [guest execution loop](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution) · [input](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#input) · [guest time and exceptions](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-time-callbacks-and-exceptions).
+Architecture: [guest execution loop](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#main-loop-execution) · [input](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#input) · [guest time and exceptions](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-time-callbacks-and-exceptions).
 
 **Observed:** benchmark sanitization removes inherited `BLUEWAKE_*`/`DOL_*` variables.
 
@@ -185,7 +185,7 @@ Separate bird-cutscene fixture from warp-tour stops. No eligible gameplay jobs �
 
 ## 5. Runner and reporting
 
-Architecture: [host lifecycle](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#host-lifecycle) · [runtime persistence](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#runtime-inputs-and-persistence) · [shutdown](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#shutdown).
+Architecture: [host lifecycle](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#host-lifecycle) · [runtime persistence](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#runtime-inputs-and-persistence) · [shutdown](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#shutdown).
 
 Proposed commands:
 
@@ -219,9 +219,9 @@ Use argv arrays, explicit outputs, atomic summaries, retained failure logs and m
 
 ## 6. Game-thread metrics and load
 
-Architecture: [device deadlines](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#guest-time-and-deadlines) · [EFB/copies/VI presentation](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#efb-copies-and-vi-presentation) · [graphics synchronization](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#synchronization-and-completion).
+Architecture: [device deadlines](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#guest-time-and-deadlines) · [EFB/copies/VI presentation](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#efb-copies-and-vi-presentation) · [graphics synchronization](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#synchronization-and-completion).
 
-Existing `BLUEWAKE_FRAME_TIMING` timestamps VI retraces, not proven logic completions. Compare [guest time and exceptions](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-time-callbacks-and-exceptions) with [EFB/copies/VI presentation](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#efb-copies-and-vi-presentation).
+Existing `BLUEWAKE_FRAME_TIMING` timestamps VI retraces, not proven logic completions. Compare [guest time and exceptions](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/GuestState.md#guest-time-callbacks-and-exceptions) with [EFB/copies/VI presentation](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#efb-copies-and-vi-presentation).
 
 M0 must identify a real update-completion marker. M8 validates counts/control flow before reporting game-frame percentiles. If unavailable, report incomplete; never divide VI intervals by two and relabel them.
 
@@ -234,7 +234,7 @@ caller_range_complete()
 all_workers_complete()
 ```
 
-Native-pool join wait is separate from [graphics synchronization](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#synchronization-and-completion) and [audio/DSP/ARAM](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#audio-dsp-and-aram) work.
+Native-pool join wait is separate from [graphics synchronization](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Graphics.md#synchronization-and-completion) and [audio/DSP/ARAM](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#audio-dsp-and-aram) work.
 
 Join wait = all-workers completion minus caller completion. Report p50/p95/p99, sample count/window, hitches, job histogram and dropped events. Event loss invalidates affected timing claims.
 
@@ -261,7 +261,7 @@ Measure diagnostics-off controls. Higher CPU utilization is not success. Flag >3
 
 ## 7. Save and CI gates
 
-Architecture: [memory card and SRAM](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#memory-card-and-sram) · [runtime persistence](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#runtime-inputs-and-persistence) · [compile/package flow](https://github.com/irregularthanis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Build.md#7-compile-and-package).
+Architecture: [memory card and SRAM](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Services.md#memory-card-and-sram) · [runtime persistence](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Host.md#runtime-inputs-and-persistence) · [compile/package flow](https://github.com/chrissotraidis/bluewake/blob/4a68ecae4725eb1ecea2d5d02f990e70c315237d/docs/architecture/Build.md#7-compile-and-package).
 
 Save acceptance: explicit inputs → copied card → guest save chain → actual file change → guest reset → separate reload → restored control/progress. Verify source inputs unchanged on every exit. Preserve legacy entry point; replace historical paths/retrace constants with baseline-validated predicates.
 
@@ -304,7 +304,7 @@ M1–M3 serialize shared C edits. M5 can run alongside them. M7/M8 use separate 
 
 ## References
 
-Pinned source root: [irregularthanis/bluewake@4a68eca](https://github.com/irregularthanis/bluewake/tree/4a68ecae4725eb1ecea2d5d02f990e70c315237d).
+Pinned source root: [chrissotraidis/bluewake@4a68eca](https://github.com/chrissotraidis/bluewake/tree/4a68ecae4725eb1ecea2d5d02f990e70c315237d).
 
 Inspect: `AGENTS.md`, `docs/GOAL_LOOP.md`, `native_work_pool.c`, `native_math.c`, native tests, both CMake entry points, Linux workflow, `bench_tour.py`, host VI loop and save acceptance.
 
