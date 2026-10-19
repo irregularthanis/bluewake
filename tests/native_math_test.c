@@ -115,7 +115,8 @@ static void unload(Module* module) {
 }
 int main(int argc,char**argv) {
     if (argc != 1 && argc != 2 && !(argc == 4 && strcmp(argv[2], "--candidate") == 0)) return 2;
-    u8* a=calloc(1,GC_MAIN_RAM_SIZE);u8* b=calloc(1,GC_MAIN_RAM_SIZE);assert(a&&b);
+    u8* a=calloc(1,GC_MAIN_RAM_SIZE);u8* b=calloc(1,GC_MAIN_RAM_SIZE);
+    u8* serial_ram=calloc(1,GC_MAIN_RAM_SIZE);assert(a&&b&&serial_ram);
     CPUState c=initial(a,0x8030D0FC);
     c.fpscr|=1;unchanged(&c,c.pc);c.fpscr&=~3u;
     c.cycle_deadline_budget=67;unchanged(&c,c.pc);c.cycle_deadline_budget=1000;
@@ -143,7 +144,7 @@ int main(int argc,char**argv) {
         assert(!bluewake_native_gpr(&c,c.pc));assert(memcmp(&c,&saved,sizeof c)==0);
     }
     puts("native math: fallback leaves state unchanged");
-    if(argc<2) {free(a);free(b);return 0;}
+    if(argc<2) {free(a);free(b);free(serial_ram);return 0;}
     Module original = {0}, candidate_module = {0};
     assert(load_module(argv[1], &original));
     assert(strcmp(original.desc->game_id, "GZLE01") == 0);
@@ -171,10 +172,19 @@ int main(int argc,char**argv) {
         memcpy(b,a,0x10000);memcpy(b+0x3F66F0,a+0x3F66F0,8);
         CPUState reference=c;reference.ram=b;
         assert(dispatch(&original, &reference, reference.pc));
+        memcpy(serial_ram,a,0x10000);memcpy(serial_ram+0x3F66F0,a+0x3F66F0,8);
+        CPUState serial=c;serial.ram=serial_ram;ppc_fpscr_updated(&serial);
+        int serial_used=bluewake_native_math(&serial,serial.pc);
         ppc_fpscr_updated(&c);
         if(candidate) assert(dispatch(&candidate_module, &c, c.pc));
         else assert(bluewake_native_math(&c,c.pc));
         reference.ram=a;
+        serial.ram=a;
+        if(serial_used && (memcmp(&serial,&reference,sizeof serial) ||
+                           memcmp(serial_ram,b,0x10000))) {
+            fprintf(stderr,"serial mismatch function %08x case %u seed %08x\n",entries[fn],i,seed);
+            return 1;
+        }
         if(memcmp(&c,&reference,sizeof c) || memcmp(a,b,0x10000)) {
             fprintf(stderr,"mismatch function %08x case %u seed %08x\n",entries[fn],i,seed);
             for(unsigned j=0;j<sizeof c;++j) if(((u8*)&c)[j]!=((u8*)&reference)[j])
@@ -185,11 +195,19 @@ int main(int argc,char**argv) {
         }
     }
     puts("native math: 12000 complete CPU and 64 KiB RAM-area comparisons against personal module passed");
-    const unsigned counts[]={2,3,17,127,1024,4096};
+    const unsigned counts[]={2,3,17,127,767,768,769,1024,4096};
+#if !defined(_WIN32)
+    char* candidate_workers=NULL;
+    if(candidate) {
+        const char* configured=getenv("BLUEWAKE_NATIVE_WORKERS");
+        if(configured) candidate_workers=strdup(configured);
+        unsetenv("BLUEWAKE_NATIVE_WORKERS");
+    }
+#endif
     for(unsigned i=0;i<360;++i) {
         if (candidate) candidate_module.native_math(i % 31u != 0, routed_ready, NULL);
         memset(a,0,0x40000);c=initial(a,0x8030DA98);
-        unsigned count=counts[i%6];
+        unsigned count=counts[i%(sizeof counts/sizeof counts[0])];
         c.gpr[4]=0x80010000;c.gpr[5]=i%2?c.gpr[4]:0x80020000;
         c.gpr[6]=count;c.cycle_budget=100000;c.cycle_deadline_budget=100000;
         c.reserve_valid=true;c.reserve_addr=c.gpr[5]+(i%count)*12;
@@ -201,10 +219,23 @@ int main(int argc,char**argv) {
         memcpy(b,a,0x40000);memcpy(b+0x3F66F0,a+0x3F66F0,8);
         CPUState reference=c;reference.ram=b;
         assert(dispatch(&original, &reference, reference.pc));
+        memcpy(serial_ram,a,0x40000);memcpy(serial_ram+0x3F66F0,a+0x3F66F0,8);
+        CPUState serial=c;serial.ram=serial_ram;ppc_fpscr_updated(&serial);
+        int serial_used=bluewake_native_math(&serial,serial.pc);
+#if !defined(_WIN32)
+        if(candidate && i==0 && candidate_workers)
+            assert(setenv("BLUEWAKE_NATIVE_WORKERS",candidate_workers,1)==0);
+#endif
         ppc_fpscr_updated(&c);
         if(candidate) assert(dispatch(&candidate_module, &c, c.pc));
         else assert(bluewake_native_math(&c,c.pc));
         reference.ram=a;
+        serial.ram=a;
+        if(serial_used && (memcmp(&serial,&reference,sizeof serial) ||
+                           memcmp(serial_ram,b,0x40000))) {
+            fprintf(stderr,"serial array mismatch case %u count %u seed %08x\n",i,count,seed);
+            return 1;
+        }
         if(memcmp(&c,&reference,sizeof c) || memcmp(a,b,0x40000)) {
             fprintf(stderr,"array mismatch case %u count %u seed %08x\n",i,count,seed);
             for(unsigned j=0;j<sizeof c;++j) if(((u8*)&c)[j]!=((u8*)&reference)[j])
@@ -247,6 +278,10 @@ int main(int argc,char**argv) {
         if (candidate_module.report) candidate_module.report();
         unload(&candidate_module);
     } else free(a);
+#if !defined(_WIN32)
+    free(candidate_workers);
+#endif
+    free(serial_ram);
     unload(&original);
     return 0;
 }
