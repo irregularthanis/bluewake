@@ -18,7 +18,6 @@
 - [Running tests locally](#running-tests-locally)
 - [Adding or changing a test](#adding-or-changing-a-test)
 - [Private and hardware validation](#private-and-hardware-validation)
-- [Current extension: game-thread integrity](#current-extension-game-thread-integrity)
 - [Source map](#source-map)
 
 Architecture path: [Index](README.md) → [Overview](Overview.md) → **Testing**
@@ -178,8 +177,8 @@ the behavior under test.
 
 | Area | Source references | What they protect | Execution model |
 | --- | --- | --- | --- |
-| Generated module contracts | [`generated_scheduler_contract_test.c`](../../tests/generated_scheduler_contract_test.c), [`generated_aram_stream_contract_test.c`](../../tests/generated_aram_stream_contract_test.c), [`generated_dvd_callback_contract_test.c`](../../tests/generated_dvd_callback_contract_test.c), [registration](../../runtime/host/CMakeLists.txt#L664-L708) | Scheduler, ARAM stream, and DVD callback behavior in a locally generated module | Registered with CTest only when the composite module exists at configure time |
-| Fast-block comparison | [`fast_blocks_test.c`](../../tests/fast_blocks_test.c), [host target](../../runtime/host/CMakeLists.txt#L289-L293) | Selected translated blocks against the ordinary dispatch path | `EXCLUDE_FROM_ALL`; explicitly built and run with a private module |
+| Generated module contracts | [`generated_scheduler_contract_test.c`](../../tests/generated_scheduler_contract_test.c), [`generated_aram_stream_contract_test.c`](../../tests/generated_aram_stream_contract_test.c), [`generated_dvd_callback_contract_test.c`](../../tests/generated_dvd_callback_contract_test.c), [`bluewake_generated_scheduler_contract_test` and adjacent registrations](../../runtime/host/CMakeLists.txt) | Scheduler, ARAM stream, and DVD callback behavior in a locally generated module | Registered with CTest only when the composite module exists at configure time |
+| Fast-block comparison | [`fast_blocks_test.c`](../../tests/fast_blocks_test.c), [`bluewake_fast_blocks_test` target](../../runtime/host/CMakeLists.txt) | Selected translated blocks against the ordinary dispatch path | `EXCLUDE_FROM_ALL`; explicitly built and run with a private module |
 | Native differential oracles | [`native_math_test.c`](../../tests/native_math_test.c), [`native_vec_test.c`](../../tests/native_vec_test.c), [`native_skin_test.c`](../../tests/native_skin_test.c) | Candidate native implementations against translated behavior | Explicit developer targets with locally generated inputs |
 
 Some targets can compile publicly but can run only when a local generated
@@ -202,8 +201,8 @@ Native differential oracles and the fast-block comparison follow this pattern.
 | --- | --- | --- | --- |
 | Shared state and workers | [`renderer_shared_flags_test.cpp`](../../tests/renderer_shared_flags_test.cpp), [`render_worker_identity_test.cpp`](../../tests/render_worker_identity_test.cpp), [`fifo_trace_worker_test.cpp`](../../tests/fifo_trace_worker_test.cpp) | Shared renderer flags, worker identity, and trace ownership | BlueWake-owned compiled tests linked to real renderer targets and registered with CTest |
 | Presentation and lifecycle | [frame interpolation](https://github.com/chrissotraidis/RecompCore/blob/338a3dbcdd384142f0fe40db44e0cd1d1b0c61e4/GXRuntime/graphics/aurora/tests/frame_interp_test.cpp), [pipeline shutdown](https://github.com/chrissotraidis/RecompCore/blob/338a3dbcdd384142f0fe40db44e0cd1d1b0c61e4/GXRuntime/graphics/aurora/tests/pipeline_shutdown_test.cpp), [audio sink](https://github.com/chrissotraidis/RecompCore/blob/338a3dbcdd384142f0fe40db44e0cd1d1b0c61e4/GXRuntime/graphics/aurora/tests/audio_sink_test.cpp) | Frame interpolation, pipeline shutdown, and audio delivery through the pinned runtime | Pinned RecompCore tests compiled through the host graph and registered with CTest |
-| Frontend and texture encoding | [frontend replay](https://github.com/chrissotraidis/RecompCore/blob/338a3dbcdd384142f0fe40db44e0cd1d1b0c61e4/GXRuntime/graphics/frontend/tests/frontend_replay_test.cpp), [texture encoding](https://github.com/chrissotraidis/RecompCore/blob/338a3dbcdd384142f0fe40db44e0cd1d1b0c61e4/GXRuntime/graphics/gxcore/tests/gxcore_texture_encode_test.cpp), [Windows registration](../../windows/CMakeLists.txt#L420-L439) | Frontend command replay and texture output through real renderer components | Pinned RecompCore tests registered by the Windows graph |
-| Pixel GPU oracles | [`gxcore_alpha_pixels_test.cpp`](../../tests/gxcore_alpha_pixels_test.cpp), [`gxcore_indirect_pixels_test.cpp`](../../tests/gxcore_indirect_pixels_test.cpp), [`gxcore_ztexture_pixels_test.cpp`](../../tests/gxcore_ztexture_pixels_test.cpp), [target definitions](../../runtime/host/CMakeLists.txt#L604-L662) | Texture decoding, TEV operations, depth behavior, and EFB copies through gxcore/Aurora | Manual executables requiring a usable graphics backend |
+| Frontend and texture encoding | [frontend replay](https://github.com/chrissotraidis/RecompCore/blob/338a3dbcdd384142f0fe40db44e0cd1d1b0c61e4/GXRuntime/graphics/frontend/tests/frontend_replay_test.cpp), [texture encoding](https://github.com/chrissotraidis/RecompCore/blob/338a3dbcdd384142f0fe40db44e0cd1d1b0c61e4/GXRuntime/graphics/gxcore/tests/gxcore_texture_encode_test.cpp), [`bluewake_frontend_test` and `bluewake_texture_encode_test` registrations](../../windows/CMakeLists.txt) | Frontend command replay and texture output through real renderer components | Pinned RecompCore tests registered by the Windows graph |
+| Pixel GPU oracles | [`gxcore_alpha_pixels_test.cpp`](../../tests/gxcore_alpha_pixels_test.cpp), [`gxcore_indirect_pixels_test.cpp`](../../tests/gxcore_indirect_pixels_test.cpp), [`gxcore_ztexture_pixels_test.cpp`](../../tests/gxcore_ztexture_pixels_test.cpp), [`bluewake_gxcore_*_pixels_test` target definitions](../../runtime/host/CMakeLists.txt) | Texture decoding, TEV operations, depth behavior, and EFB copies through gxcore/Aurora | Manual executables requiring a usable graphics backend |
 
 BlueWake reuses selected tests from the pinned RecompCore checkout when the
 actual linked runtime or renderer behavior is the contract. The host CMake
@@ -223,7 +222,7 @@ whether a test is automatic.
 | --- | --- | --- | --- |
 | Process lifecycle | [`process_close_test.c`](../../tests/process_close_test.c), [`launch_marker_test.c`](../../tests/launch_marker_test.c) | Child-process closure, launch state, and restart boundaries | Compiled process tests registered by supported host graphs |
 | Atomic filesystem changes | [`atomic_file_test.c`](../../tests/atomic_file_test.c), [`atomic_copy_race_test.c`](../../tests/atomic_copy_race_test.c), [`host_state_save_failure_test.c`](../../tests/host_state_save_failure_test.c) | Replacement, concurrent copies, and failed state persistence | Compiled tests using temporary owned output paths |
-| AppImage packaging | [`make_appimage.sh`](../../scripts/linux/make_appimage.sh), [`check_appimage_abi.py`](../../scripts/linux/check_appimage_abi.py), [Linux CI fixture](../../.github/workflows/linux-host.yml#L91-L103) | Package layout, ABI ceiling, launch smoke, and zsync output | Disc-free synthetic fixture built and checked in Linux CI |
+| AppImage packaging | [`make_appimage.sh`](../../scripts/linux/make_appimage.sh), [`check_appimage_abi.py`](../../scripts/linux/check_appimage_abi.py), [`Package and validate a disc-free AppImage fixture` workflow step](../../.github/workflows/linux-host.yml) | Package layout, ABI ceiling, launch smoke, and zsync output | Disc-free synthetic fixture built and checked in Linux CI |
 
 Some failures appear only across process or filesystem boundaries. These tests
 use real child processes, temporary output directories, generated fixtures,
@@ -268,13 +267,13 @@ The main registration styles are:
 
 | Style | Location | Use | When does it run? | Code reference |
 | --- | --- | --- | --- | --- |
-| Direct target and `add_test` | Platform `CMakeLists.txt` | Platform-specific linkage or a small single-use test | After its executable is built, whenever the configured CTest selection includes its registered name. | [Host scheduler contract](../../runtime/host/CMakeLists.txt#L137-L147) |
-| Shared CMake fragment | `cmake/*_test.cmake` | The same target definition is included by multiple entry points | When an including platform graph is configured, builds the shared target, and runs the matching registered CTest. | [DVD completion registration](../../cmake/dvd_completion_test.cmake) and [Linux inclusion](../../linux/CMakeLists.txt#L224-L229) |
-| Loop-generated variants | Platform CMake | One harness runs against compile-time modes such as plain/global guest memory | Each generated target becomes a separate test; selected variants run independently in the same CTest invocation. | [Host gather-memory variants](../../runtime/host/CMakeLists.txt#L292-L308) |
-| Repeated CTest command | `add_test` plus properties | One binary runs with different arguments or environments, such as haptics modes | CTest starts the same built executable once for every registered case whose name matches the selection. | [Haptics modes](../../cmake/haptics_test.cmake#L1-L9) |
-| CTest fixture | `FIXTURES_SETUP` and dependent tests | A generated artifact is created before consumers run | When a dependent consumer is selected, CTest schedules the fixture setup first and then runs consumers against its outputs. | [Generated HD-disc fixture](../../cmake/wwhd_disc_image_test.cmake#L20-L38) |
-| Conditional registration | `if(EXISTS ...)` or target availability | A local module or optional runtime component is required | Only when the requirement existed at CMake configure time; otherwise the target or CTest entry is absent from that build graph. | [Generated scheduler contract](../../runtime/host/CMakeLists.txt#L663-L678) |
-| Manual target | `EXCLUDE_FROM_ALL`, no `add_test` | Private input, GPU oracle, or explicit developer workflow | Only when a developer explicitly names the target during the build and then invokes the executable with its required local inputs. | [Private native-math oracle](../../runtime/host/CMakeLists.txt#L347-L356) and [manual GPU oracle](../../runtime/host/CMakeLists.txt#L604-L612) |
+| Direct target and `add_test` | Platform `CMakeLists.txt` | Platform-specific linkage or a small single-use test | After its executable is built, whenever the configured CTest selection includes its registered name. | [`bluewake_scheduler_contract_test` registration](../../runtime/host/CMakeLists.txt) |
+| Shared CMake fragment | `cmake/*_test.cmake` | The same target definition is included by multiple entry points | When an including platform graph is configured, builds the shared target, and runs the matching registered CTest. | [DVD completion registration](../../cmake/dvd_completion_test.cmake) and [`dvd_completion_test.cmake` inclusion](../../linux/CMakeLists.txt) |
+| Loop-generated variants | Platform CMake | One harness runs against compile-time modes such as plain/global guest memory | Each generated target becomes a separate test; selected variants run independently in the same CTest invocation. | [`foreach(_variant plain global)` gather-memory variants](../../runtime/host/CMakeLists.txt) |
+| Repeated CTest command | `add_test` plus properties | One binary runs with different arguments or environments, such as haptics modes | CTest starts the same built executable once for every registered case whose name matches the selection. | [`bluewake_haptics_*` modes](../../cmake/haptics_test.cmake) |
+| CTest fixture | `FIXTURES_SETUP` and dependent tests | A generated artifact is created before consumers run | When a dependent consumer is selected, CTest schedules the fixture setup first and then runs consumers against its outputs. | [`bluewake_wwhd_disc_fixture` setup and consumers](../../cmake/wwhd_disc_image_test.cmake) |
+| Conditional registration | `if(EXISTS ...)` or target availability | A local module or optional runtime component is required | Only when the requirement existed at CMake configure time; otherwise the target or CTest entry is absent from that build graph. | [`bluewake_generated_scheduler_contract_test` conditional registration](../../runtime/host/CMakeLists.txt) |
+| Manual target | `EXCLUDE_FROM_ALL`, no `add_test` | Private input, GPU oracle, or explicit developer workflow | Only when a developer explicitly names the target during the build and then invokes the executable with its required local inputs. | [`bluewake_native_math_test` private oracle and `bluewake_gxcore_*_pixels_test` GPU oracles](../../runtime/host/CMakeLists.txt) |
 
 CTest properties carry operational contracts such as environment variables,
 timeouts, labels, and fixture dependencies. A new test should encode these in
@@ -560,14 +559,18 @@ graph and build only the affected targets when iterating:
 
 ```bash
 cmake -S linux -B build/linux-host \
+  -DBUILD_TESTING=OFF \
   -DBLUEWAKE_LINUX_REGRESSION_TESTS=ON
 cmake --build build/linux-host --parallel --target TARGET_NAME
 ctest --test-dir build/linux-host --show-only
 ctest --test-dir build/linux-host --output-on-failure -R '^bluewake_'
 ```
 
-For parity with CI—including compiler, container, dependency providers, and
-the explicit target set—use the commands in `.github/workflows/linux-host.yml`.
+`BUILD_TESTING=OFF` matches CI: the BlueWake regression option registers the
+explicit source-only suite without enabling dependency test suites. For full
+parity—including Ninja, Clang 18, Release mode, the container, dependency
+providers, and the explicit target set—use
+`.github/workflows/linux-host.yml`.
 
 ### Windows source-only integration
 
@@ -575,16 +578,18 @@ Windows uses the analogous opt-in graph:
 
 ```powershell
 cmake -S windows -B build/windows-host -G Ninja `
+  -DBUILD_TESTING=OFF `
   -DBLUEWAKE_WINDOWS_REGRESSION_TESTS=ON
 cmake --build build/windows-host --parallel --target TARGET_NAME
 ctest --test-dir build/windows-host --show-only
 ctest --test-dir build/windows-host --output-on-failure -R '^bluewake_'
 ```
 
-The CI workflow supplies its exact Visual Studio environment, Clang/LLD flags,
-runtime checkout, Python fixture environment, and complete target list. A local
-developer may need the same prerequisites before these abbreviated commands
-configure successfully.
+`BUILD_TESTING=OFF` keeps dependency suites disabled while the BlueWake option
+registers the source-only regressions. The CI workflow also supplies its exact
+Visual Studio environment, Clang/LLD flags, Release mode, runtime checkout,
+Python fixture environment, and complete target list. A local developer may
+need the same prerequisites before these abbreviated commands configure.
 
 ### Focused and verbose execution
 
@@ -630,7 +635,7 @@ flowchart TD
     Focused --> Platform --> More
     More -->|Yes| Private --> Report
     More -->|No| Report
-    Public -->|No| Private
+    Public -->|No| Private --> Report
 ```
 
 Use the boundary to select the route:
@@ -648,9 +653,6 @@ owned temporary paths, stable inputs, explicit synchronization, and timeouts.
 CTest registration and the CI build list are separate obligations; a test must
 be in both to run there. Finish by reporting what executed and what still needs
 private, gameplay, or hardware evidence.
-
-For a concrete walk through this flow, continue to
-[Current extension: game-thread integrity](#current-extension-game-thread-integrity).
 
 ## Private and hardware validation
 
@@ -676,214 +678,6 @@ Performance runs follow the separate
 complete routes, comparable settings, and path-activation evidence before a
 timing difference is treated as an optimization result.
 
-## Current extension: game-thread integrity
-
-Draft [PR #399](https://github.com/chrissotraidis/bluewake/pull/399) is the
-operator's worked example for the [test-addition flow](#adding-or-changing-a-test).
-The implementation adds a synthetic harness, standalone CMake project, and
-shared registration around the real native worker pool.
-
-```mermaid
-flowchart LR
-    Inventory["1. Inventory"]
-    Standalone["2. Standalone"]
-    Integrated["3. Integrated"]
-    Sanitizers["4. Sanitizers"]
-    CI["5. CI"]
-    Private["6. Private and<br>hardware"]
-
-    Inventory --> Standalone --> Integrated --> Sanitizers --> CI --> Private
-```
-
-### 1. Inventory the standalone cases
-
-**What to run?**
-
-```bash
-cmake -S tests/native_work_pool -B build/native-work-pool \
-  -DCMAKE_BUILD_TYPE=Debug
-ctest --test-dir build/native-work-pool --show-only
-```
-
-**Why?** Confirm that the renderer-free graph resolves and that one-time worker
-settings became separate CTest processes.
-
-**When and where in the build?** This is the **configure** step for the
-standalone test tree, outside the application build. Run it manually after
-changing the harness, its CMake file, or worker matrix and before compiling or
-interpreting a pass count.
-
-**Output artifacts inspection and interpretation:**
-
-- `build/native-work-pool/CMakeCache.txt`: verify compiler, build type, and
-  thread resolution.
-- CTest inventory: expect six POSIX cases—invalid, zero, 1, 2, 3, and
-  99/clamped. Windows intentionally exposes only the serial case.
-- Missing or duplicate cases mean **incomplete registration**; no behavioral
-  pass exists yet.
-
-### 2. Build and run the real pool
-
-**What to run?**
-
-```bash
-cmake --build build/native-work-pool --parallel
-ctest --test-dir build/native-work-pool --output-on-failure
-```
-
-**Why?** Exercise production `native_work_pool.c` for exact partitions,
-publication before return, untouched sentinels, 1,000 changing submissions,
-and actual parallel-path activation.
-
-**When and where in the build?** This is the standalone tree's **compile and
-CTest** step. Run it manually before platform integration, after the inventory
-is complete, and repeat it after pool, harness, compiler, or configuration
-changes. It does not build the host or renderer.
-
-**Output artifacts inspection and interpretation:**
-
-- `bluewake_native_work_pool_test`: proves the real pool and harness linked,
-  not that they ran.
-- CTest summary: expect 6/6 on POSIX. A lower selected count is incomplete even
-  if it says `100% tests passed`.
-- `build/native-work-pool/Testing/Temporary/LastTest.log`: inspect the first bad
-  visit, value, sentinel, timeout, or batch count when a case fails.
-
-### 3. Run through the Linux graph
-
-**What to run?**
-
-```bash
-cmake -S linux -B build/linux-gamethread-tests \
-  -DBLUEWAKE_LINUX_REGRESSION_TESTS=ON
-cmake --build build/linux-gamethread-tests --parallel --target \
-  bluewake_native_work_pool_test bluewake_native_math_guard_test
-ctest --test-dir build/linux-gamethread-tests --output-on-failure \
-  -R 'bluewake_native_(work_pool|math_(guard|workers))'
-```
-
-**Why?** Prove that shared native-math registration and the standalone pool
-suite survive the supported Linux CMake entry point and its GXRuntime linkage.
-
-**When and where in the build?** This is the **platform integration** step:
-Linux CMake configures the host graph with regression tests enabled, the named
-test targets compile in that graph, and CTest runs after compilation but before
-packaging. Run it after standalone success and after shared CMake, GXRuntime,
-or guard changes.
-
-**Output artifacts inspection and interpretation:**
-
-- CTest inventory: expect two native-math guard/worker cases plus six pool
-  cases.
-- Summary: expect 8/8; inspect
-  `build/linux-gamethread-tests/Testing/Temporary/LastTest.log` otherwise.
-- Attribute compiler warnings to their owning source. A pre-existing dependency
-  warning is context, not evidence that changed files were warning-free.
-
-### 4. Run sanitizers
-
-**What to run?**
-
-```bash
-cmake -S tests/native_work_pool -B build/native-work-pool-sanitize \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_C_FLAGS='-Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer' \
-  -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
-cmake --build build/native-work-pool-sanitize --parallel
-ctest --test-dir build/native-work-pool-sanitize --output-on-failure
-```
-
-**Why?** Detect memory and undefined-behavior defects outside the functional
-assertions.
-
-**When and where in the build?** This is a separate, instrumented standalone
-build tree; it is not part of the ordinary application build or current public
-CI. Run it after the unsanitized standalone suite passes and after memory
-ownership, range, publication, or teardown changes.
-
-**Output artifacts inspection and interpretation:**
-
-- Expect 6/6 with no ASan/UBSan diagnostic.
-- If LeakSanitizer cannot run under `ptrace`, rerun with
-  `ASAN_OPTIONS=detect_leaks=0` and report the leak check as unavailable; address
-  and undefined-behavior coverage remain, but leak coverage does not.
-- A sanitizer abort is a failure even if the unsanitized suite passed.
-
-### 5. Verify pull-request CI
-
-**What to run?**
-
-```bash
-gh pr checks 399 --repo chrissotraidis/bluewake
-```
-
-**Why?** Tie Linux, Windows, audit, and attribution evidence to the pushed
-commit and CI environments.
-
-**When and where in the build?** GitHub Actions runs after a branch is pushed.
-The intended Linux placement is host configure, explicit test-target build,
-CTest, then packaging. The pool target is registered in the proposed Linux
-graph but is not yet in CI's explicit build list. Windows currently exercises
-the serial case only through the standalone project; it still needs Windows
-graph registration and an explicit CI build target. Check this stage after
-every implementation push and treat either missing connection as incomplete.
-
-**Output artifacts inspection and interpretation:**
-
-- Open each required check log; confirm the targets compiled before CTest and
-  that the expected tests were selected.
-- `pending`, a missing check, a missing executable, or absent Windows serial
-  evidence means **incomplete**, not passed.
-- Registration alone is insufficient: Linux CI builds an explicit target list
-  before running CTest, so the new targets must appear in that list.
-
-### 6. Extend to private and hardware evidence
-
-**What to run?**
-
-```bash
-cmake --build build/linux-gamethread-tests --target bluewake_native_math_test
-BLUEWAKE_NATIVE_WORKERS=0 \
-  build/linux-gamethread-tests/bluewake_native_math_test \
-  REFERENCE_MODULE --candidate CANDIDATE_MODULE
-BLUEWAKE_NATIVE_WORKERS=2 \
-  build/linux-gamethread-tests/bluewake_native_math_test \
-  REFERENCE_MODULE --candidate CANDIDATE_MODULE
-```
-
-Later planning milestones add lifecycle, gameplay, load, topology, and soak
-commands; do not invent a pass command before those runners exist.
-
-**Why?** Compare translated, serial-native, and parallel-native state using
-local player-owned modules, then extend correctness evidence to representative
-gameplay and devices.
-
-**When and where in the build?** The oracle is `EXCLUDE_FROM_ALL`: ordinary
-builds and public CI never compile or run it. Build its target explicitly only
-after public source-only, sanitizer, and platform checks pass, then run it
-locally against the candidate module. Later gameplay and hardware stages run
-after packaging on the device being qualified.
-
-**Output artifacts inspection and interpretation:**
-
-- Inspect first CPU/RAM differences, activation counters, complete checkpoint
-  grids, cleanup status, and topology/thermal context.
-- Keep modules, discs, states, cards, and raw logs local. Publish only safe
-  hashes and summaries.
-- Missing required module, gameplay, or device evidence means **incomplete**.
-  Source-only success does not establish gameplay correctness or performance.
-
-PR #399 recorded 6/6 standalone, 8/8 Linux-integrated, and 6/6 ASan/UBSan
-results at commit `97137c6e8178dd17df7e65dc41691d9a75df9c1c`; leak detection
-was unavailable under the traced container. Interpret those results as Linux
-source-only evidence, not complete game-thread qualification.
-
-The requirements and remaining milestones are tracked in unmerged
-[planning PR #397](https://github.com/chrissotraidis/bluewake/pull/397):
-
-- [Product requirements](https://github.com/irregularthanis/bluewake/blob/docs/gamethread-integtests/docs/planning/2026-10-18-gamethread-integtests/PRD.md)
-- [Technical plan](https://github.com/irregularthanis/bluewake/blob/docs/gamethread-integtests/docs/planning/2026-10-18-gamethread-integtests/TECH_PLAN.md)
-- [Milestones](https://github.com/irregularthanis/bluewake/blob/docs/gamethread-integtests/docs/planning/2026-10-18-gamethread-integtests/PROGRESS.md)
 
 ## Source map
 
