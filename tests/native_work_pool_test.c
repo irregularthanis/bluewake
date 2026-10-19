@@ -81,6 +81,12 @@ int main(int argc, char **argv)
         fputs("allocation failed\n", stderr);
         return 1;
     }
+    if (bluewake_parallel_workers() != expected_workers) {
+        fprintf(stderr, "effective workers: got %u want %u\n",
+                bluewake_parallel_workers(), expected_workers);
+        free(context);
+        return 1;
+    }
 
     /* Exercise empty, below-grain serial, and uneven parallel partitions before
      * repeatedly replacing the context contents and submitted range. */

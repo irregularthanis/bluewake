@@ -14,6 +14,8 @@ add_executable(bluewake_native_work_pool_test
     ${BLUEWAKE_POOL_REPO_ROOT}/cmake/composite/native_work_pool.c)
 target_include_directories(bluewake_native_work_pool_test PRIVATE
     ${BLUEWAKE_POOL_REPO_ROOT}/cmake/composite)
+target_compile_definitions(bluewake_native_work_pool_test PRIVATE
+    BLUEWAKE_POOL_TESTING=1)
 
 if(NOT WIN32)
     find_package(Threads REQUIRED)
@@ -49,9 +51,23 @@ if(NOT WIN32)
     endforeach()
 
     add_test(NAME bluewake_native_work_pool_clamped_test
-        COMMAND bluewake_native_work_pool_test 1)
+        COMMAND bluewake_native_work_pool_test 8)
     set_tests_properties(bluewake_native_work_pool_clamped_test PROPERTIES
         ENVIRONMENT "BLUEWAKE_NATIVE_WORKERS=99"
+        LABELS "native-work-pool;fast"
+        TIMEOUT 15)
+
+    add_test(NAME bluewake_native_work_pool_creation_failure_test
+        COMMAND bluewake_native_work_pool_test 0)
+    set_tests_properties(bluewake_native_work_pool_creation_failure_test PROPERTIES
+        ENVIRONMENT "BLUEWAKE_NATIVE_WORKERS=4;BLUEWAKE_NATIVE_WORKER_FAIL_AFTER=0"
+        LABELS "native-work-pool;fast"
+        TIMEOUT 15)
+
+    add_test(NAME bluewake_native_work_pool_partial_creation_test
+        COMMAND bluewake_native_work_pool_test 2)
+    set_tests_properties(bluewake_native_work_pool_partial_creation_test PROPERTIES
+        ENVIRONMENT "BLUEWAKE_NATIVE_WORKERS=4;BLUEWAKE_NATIVE_WORKER_FAIL_AFTER=2"
         LABELS "native-work-pool;fast"
         TIMEOUT 15)
 endif()

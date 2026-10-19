@@ -8,4 +8,7 @@ typedef void (*BluewakeRangeWork)(void* context, size_t first, size_t end);
 void bluewake_parallel_range(size_t count, size_t minimum_grain,
                              BluewakeRangeWork work, void* context);
 unsigned long long bluewake_parallel_batches(void);
+#if defined(BLUEWAKE_POOL_TESTING)
+unsigned bluewake_parallel_workers(void);
+#endif
 #endif
