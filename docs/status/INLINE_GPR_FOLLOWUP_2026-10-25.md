@@ -143,43 +143,44 @@ To make the REL sites smaller without relying on training, each REL and return-k
 So the size came from the profile, not from the inlined stores, and the extra call costs a little. The full-inline
 form stays.
 
-## 6. The full stack as real AppImages, rendered: #472's runtime is +3.6%
+## 6. Real AppImages, rendered: `main` today against the full stack, with and without #472
 
-The trained full-stack module, packaged twice with `scripts/linux/make_appimage.sh` from apps built in the CI
-container at the same commit: today's AppImage runtime (LLVM libc++, Dawn compiled from source, 237 MB) and #472's
-(static libstdc++, the prebuilt Dawn package, 182 MB). Both pass `check_appimage_abi.py` (14 and 12 ELF files,
-`GLIBC_2.38` at most), and both carry the same module byte for byte. The tour, rendered, on the four E-cores, three
-rounds with the order rotated. A local copy of `bench_tour.py` also set `BLUEWAKE_DATA_DIR` to its scratch folder and
-pointed `BLUEWAKE_DISC`, `BLUEWAKE_DOL` and `BLUEWAKE_RELS_DIR` at a prepared game folder: an AppImage carries no game
-files, and without that it opens its setup window and writes into the player's own data folder.
+Three AppImages, each packaged with `scripts/linux/make_appimage.sh` from an app built in the CI container, and each
+passing `check_appimage_abi.py`:
 
-| Stop | Today's AppImage | #472's AppImage | Change |
-| --- | ---: | ---: | ---: |
-| Outset | 45.90 | 47.77 | +4.1% |
-| Windfall | 40.00 | 41.06 | +2.7% |
-| Dragon Roost Cavern | 58.17 | 60.73 | +4.4% |
-| Forest Haven | 40.61 | 42.02 | +3.5% |
-| Sea by the Fortress | 47.46 | 48.90 | +3.0% |
-| Mean | 46.43 | 48.10 | **+3.6%** (faster at every stop in 3/3 rounds) |
+| AppImage | Game module | Runtime | Size | ELF files |
+| --- | --- | --- | ---: | ---: |
+| `main` today | `main`'s, trained | today's: LLVM libc++, Dawn compiled from source | 236 MB | 14 |
+| Full stack | the full stack's, trained (§4) | today's: LLVM libc++, Dawn compiled from source | 237 MB | 14 |
+| Full stack + #472 | the same module, byte for byte | #472's: static libstdc++, the prebuilt Dawn package | 182 MB | 12 |
 
-Against `main`, rendered the same way (one pass of `main`'s folder app, which uses libstdc++ and the prebuilt Dawn
-like #472's AppImage; checkpoints identical to the full stack's):
+The tour, rendered, on the four E-cores. A local copy of `bench_tour.py` also set `BLUEWAKE_DATA_DIR` to its scratch
+folder and pointed `BLUEWAKE_DISC`, `BLUEWAKE_DOL` and `BLUEWAKE_RELS_DIR` at a prepared game folder: an AppImage
+carries no game files, and without that it opens its setup window and writes into the player's own data folder. The
+two full-stack AppImages ran three rounds with the order rotated; `main`'s ran one pass. Checkpoints were identical
+across all three.
 
-| Stop | `main` | Full stack, #472's AppImage | Change | Full stack, today's AppImage |
-| --- | ---: | ---: | ---: | ---: |
-| Outset | 44.85 | 47.77 | +6.5% | 45.90 |
-| Windfall | 38.30 | 41.06 | +7.2% | 40.00 |
-| Dragon Roost Cavern | 55.83 | 60.73 | +8.8% | 58.17 |
-| Forest Haven | 39.47 | 42.02 | +6.5% | 40.61 |
-| Sea by the Fortress | 45.70 | 48.90 | +7.0% | 47.46 |
-| Mean | 44.83 | 48.10 | **+7.3%** | 46.43 (+3.6%) |
+| Stop | `main` today | Full stack | Change | Full stack + #472 | Change |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Outset | 43.54 | 45.90 | +5.4% | 47.77 | +9.7% |
+| Windfall | 37.52 | 40.00 | +6.6% | 41.06 | +9.4% |
+| Dragon Roost Cavern | 54.15 | 58.17 | +7.4% | 60.73 | +12.2% |
+| Forest Haven | 38.36 | 40.61 | +5.9% | 42.02 | +9.5% |
+| Sea by the Fortress | 44.80 | 47.46 | +5.9% | 48.90 | +9.2% |
+| Mean | 43.67 | 46.43 | **+6.3%** | 48.10 | **+10.1%** |
 
-So the game-code gain holds rendered (+7.3%, against +7.9 and +8.2% headless), and the libc++ runtime takes back about
-3.5 points of it. That is in line with the folder-app measurements on #472 (+2.5 to +3%), now on the real packages. One rendered run
-(the first of the pass, today's AppImage) had checkpoints that differ from the other five in `mem1` only, at every
-checkpoint, with the CPU state identical throughout: memory the CPU's state never depends on, most likely frames
-copied from the GPU into guest RAM while the driver's shader cache was cold for that binary. Every other rendered run,
-and every headless run, matched.
+So against the AppImage players have today, the full stack is +6.3% rendered on these cores, and with #472's runtime
++10.1%, faster at every stop. #472 alone, the two full-stack AppImages against each other, is **+3.6%**, faster at every
+stop in 3/3 rounds. That is in line with the folder-app measurements on #472 (+2.5 to +3%).
+
+For the game code without the runtime, one pass of `main`'s folder app (libstdc++ and the prebuilt Dawn, like #472's
+AppImage) gave 44.85, 38.30, 55.83, 39.47 and 45.70 (mean 44.83): the full stack + #472 is +7.3% against it, close to
+the +7.9 and +8.2% headless, and libc++ costs `main` 2.6% (43.67 against 44.83).
+
+One rendered run (the first of the three-round pass, the full stack in today's AppImage) had checkpoints that differ
+from the others in `mem1` only, at every checkpoint, with the CPU state identical throughout: memory the CPU's state
+never depends on, most likely frames copied from the GPU into guest RAM while the driver's shader cache was cold for
+that binary. Every other rendered run, and every headless run, matched.
 
 ## Builds and branches
 
@@ -190,7 +191,7 @@ and every headless run, matched.
 
 ## Not done yet
 
-- `main` rendered for three rounds (§6 has one pass), and `main` as today's libc++ AppImage.
+- `main`'s AppImage rendered for three rounds (§6 has one pass).
 - A Steam Deck or another AMD CPU, Windows, and a Mac. All the numbers here are Intel x86-64.
 - A second independent training of the full stack, to put a number on profile luck. It moved results by about ±1% in
   §1, small against +8%.
