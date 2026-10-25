@@ -112,9 +112,9 @@
     {
       "id": "recompcore",
       "url": "https://github.com/irregularthanis/RecompCore",
-      "sha": "47a5229cbfb3387cfd21c2b9d304b303a54a6767",
-      "branch": "perf/guest-alias-range-overlap",
-      "upstream_pull_request": "https://github.com/chrissotraidis/RecompCore/pull/45",
+      "sha": "0fe472a73232e5bbfc53698213915b3ac18cccd0",
+      "branch": "perf/gx-display-list-attribution",
+      "upstream_pull_request": null,
       "license": "GPL-3.0",
       "role": "static-recomp runtime (GXRuntime), vendored Aurora renderer at GXRuntime/graphics/aurora, Dolphin DSP donor sources, and the DolRecomp translator as the DolRecomp submodule; the product source for the iPad build (scripts/ios/build_device.sh)",
       "verified": "2026-10-22",
