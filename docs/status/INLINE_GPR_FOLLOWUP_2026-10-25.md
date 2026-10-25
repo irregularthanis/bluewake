@@ -95,7 +95,10 @@ Of the rest:
 ## 4. Inlining the REL modules' calls: lost, then won
 
 The generator now matches `bl 0xC0328Fxx` and checks the entry by its 0x8 form. `RETURN_KEYED` lets every caller
-of `0x80328F84` and `0x80328F40` run inline except the ones whose return is watched. Inline sites in the module
+of `0x80328F84` and `0x80328F40` run inline except the ones whose return is watched (`0x80246A04` for the first;
+`0x802B09C4` and `0x802B4100` for the second). A test fails if the host ever names either entry without one of
+those returns, so a later hook that ignores `lr` cannot be skipped silently; it found the second return of
+`0x80328F40`. Inline sites in the module
 source went from 11,648 to 28,590, and 496 REL chunks now have them (none before).
 
 | Build | Module code | Tour mean | vs `main` |
@@ -159,7 +162,20 @@ files, and without that it opens its setup window and writes into the player's o
 | Sea by the Fortress | 47.46 | 48.90 | +3.0% |
 | Mean | 46.43 | 48.10 | **+3.6%** (faster at every stop in 3/3 rounds) |
 
-That is in line with the folder-app measurements on #472 (+2.5 to +3%), now on the real packages. One rendered run
+Against `main`, rendered the same way (one pass of `main`'s folder app, which uses libstdc++ and the prebuilt Dawn
+like #472's AppImage; checkpoints identical to the full stack's):
+
+| Stop | `main` | Full stack, #472's AppImage | Change | Full stack, today's AppImage |
+| --- | ---: | ---: | ---: | ---: |
+| Outset | 44.85 | 47.77 | +6.5% | 45.90 |
+| Windfall | 38.30 | 41.06 | +7.2% | 40.00 |
+| Dragon Roost Cavern | 55.83 | 60.73 | +8.8% | 58.17 |
+| Forest Haven | 39.47 | 42.02 | +6.5% | 40.61 |
+| Sea by the Fortress | 45.70 | 48.90 | +7.0% | 47.46 |
+| Mean | 44.83 | 48.10 | **+7.3%** | 46.43 (+3.6%) |
+
+So the game-code gain holds rendered (+7.3%, against +7.9 and +8.2% headless), and the libc++ runtime takes back about
+3.5 points of it. That is in line with the folder-app measurements on #472 (+2.5 to +3%), now on the real packages. One rendered run
 (the first of the pass, today's AppImage) had checkpoints that differ from the other five in `mem1` only, at every
 checkpoint, with the CPU state identical throughout: memory the CPU's state never depends on, most likely frames
 copied from the GPU into guest RAM while the driver's shader cache was cold for that binary. Every other rendered run,
@@ -174,7 +190,7 @@ and every headless run, matched.
 
 ## Not done yet
 
-- The full stack rendered against `main` rendered (§6 compares two runtimes of the same module).
+- `main` rendered for three rounds (§6 has one pass), and `main` as today's libc++ AppImage.
 - A Steam Deck or another AMD CPU, Windows, and a Mac. All the numbers here are Intel x86-64.
 - A second independent training of the full stack, to put a number on profile luck. It moved results by about ±1% in
   §1, small against +8%.
