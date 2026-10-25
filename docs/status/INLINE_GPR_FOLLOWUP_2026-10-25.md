@@ -140,6 +140,31 @@ To make the REL sites smaller without relying on training, each REL and return-k
 So the size came from the profile, not from the inlined stores, and the extra call costs a little. The full-inline
 form stays.
 
+## 6. The full stack as real AppImages, rendered: #472's runtime is +3.6%
+
+The trained full-stack module, packaged twice with `scripts/linux/make_appimage.sh` from apps built in the CI
+container at the same commit: today's AppImage runtime (LLVM libc++, Dawn compiled from source, 237 MB) and #472's
+(static libstdc++, the prebuilt Dawn package, 182 MB). Both pass `check_appimage_abi.py` (14 and 12 ELF files,
+`GLIBC_2.38` at most), and both carry the same module byte for byte. The tour, rendered, on the four E-cores, three
+rounds with the order rotated. A local copy of `bench_tour.py` also set `BLUEWAKE_DATA_DIR` to its scratch folder and
+pointed `BLUEWAKE_DISC`, `BLUEWAKE_DOL` and `BLUEWAKE_RELS_DIR` at a prepared game folder: an AppImage carries no game
+files, and without that it opens its setup window and writes into the player's own data folder.
+
+| Stop | Today's AppImage | #472's AppImage | Change |
+| --- | ---: | ---: | ---: |
+| Outset | 45.90 | 47.77 | +4.1% |
+| Windfall | 40.00 | 41.06 | +2.7% |
+| Dragon Roost Cavern | 58.17 | 60.73 | +4.4% |
+| Forest Haven | 40.61 | 42.02 | +3.5% |
+| Sea by the Fortress | 47.46 | 48.90 | +3.0% |
+| Mean | 46.43 | 48.10 | **+3.6%** (faster at every stop in 3/3 rounds) |
+
+That is in line with the folder-app measurements on #472 (+2.5 to +3%), now on the real packages. One rendered run
+(the first of the pass, today's AppImage) had checkpoints that differ from the other five in `mem1` only, at every
+checkpoint, with the CPU state identical throughout: memory the CPU's state never depends on, most likely frames
+copied from the GPU into guest RAM while the driver's shader cache was cold for that binary. Every other rendered run,
+and every headless run, matched.
+
 ## Builds and branches
 
 - `pdale-boop/bluewake` `exp/gpr-direct`: #480 at `7d6a30d`, then `043495d` (direct frame writes) and `52583a4` (REL
@@ -149,8 +174,7 @@ form stays.
 
 ## Not done yet
 
-- The full stack, rendered: running at the time of writing, as two real AppImages of the trained build (today's libc++
-  runtime and #472's static libstdc++).
+- The full stack rendered against `main` rendered (§6 compares two runtimes of the same module).
 - A Steam Deck or another AMD CPU, Windows, and a Mac. All the numbers here are Intel x86-64.
 - A second independent training of the full stack, to put a number on profile luck. It moved results by about ±1% in
   §1, small against +8%.
