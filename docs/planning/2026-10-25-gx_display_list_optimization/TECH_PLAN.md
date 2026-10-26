@@ -1,6 +1,6 @@
 # TECH_PLAN — Repeated GX display-list optimization
 
-Status: M0 complete; M2-B shows a repeatable GX-worker reduction and remains under qualification
+Status: M0 complete; narrow M2-B3 rejected; fixed-capacity M2-B4 prepared for qualification
 
 Baseline: [`chrissotraidis/bluewake@b1bf26a`](https://github.com/chrissotraidis/bluewake/commit/b1bf26a0b8a5c1c6e86b9351d658806ff9eb3c1c)
 
@@ -46,8 +46,9 @@ Symbol identities come from the upstream [GZLE01 symbol map](https://github.com/
 | Proposed | RecompCore `GxCoreSink` / draw submission | Implement #454's same-state, same-transform plan concatenation behind a default-off switch | M1 |
 | Active experiment | RecompCore `GxCoreState::build_draw_plan_into` | Reuse decoded vertices with raw FIFO identity and dirty-epoch invalidation | M2 |
 | Implemented diagnostic | RecompCore GXCore cache counters/profile labels | Attribute hashing, epoch, lookup, collision and copy volume without changing cache behavior | M2-B0 |
-| Implemented candidate | RecompCore `GxCoreState::build_draw_plan_into` | Initialize `DrawPlan::vertices` only on a miss; retain the existing cached-vector assignment and ownership | M2-B3 |
-| Deferred alternatives | RecompCore GXCore/frontend | Revisit payload identity, epoch metadata, broader vertex ownership or cache layout only if B3 evidence is insufficient | M2-B1, B2, B4 |
+| Rejected candidate | RecompCore `GxCoreState::build_draw_plan_into` | M2-B3 initialized `DrawPlan::vertices` only on a miss; Deck samples did not improve | M2-B3 |
+| Active candidate | RecompCore geometry-cache lookup/replacement | Keep 256 entries but organize them as 128 two-way sets | M2-B4 |
+| Deferred alternatives | RecompCore GXCore/frontend | Revisit payload identity, epoch metadata or broader vertex ownership only if B4 evidence is insufficient | M2-B1, B2, broader B3 |
 | Proposed | RecompCore frontend/GX state | Carry XF, channel, light, texture and array generation IDs so hot cache checks compare compact identities | M3 |
 | Proposed | Aurora GXCore submission | Evaluate matrix-varying instancing only after M1–M3 results establish remaining cost | M4 |
 | Modify after runtime acceptance | BlueWake dependency lock, patch export and performance documentation | Pin the companion runtime revision and record qualification | M5 |
@@ -238,7 +239,38 @@ if (geometry_hit) {
 
 Qualification compares three modes built from the same BlueWake source and toolchain: cache off, original M2-B (`3586581`), and M2-B3 (`2a4a985`). First measure A/A noise, then rotate the three modes across stable, slow and worst fixed views and the five-scene tour. Record source hashes, activation counters, FPS/frame time, process and GX-worker CPU, checkpoints and rendered observations. Retain B3 only if its improvement over original M2-B exceeds A/A noise; a successful build or fewer writes alone is insufficient.
 
-Candidate isolation matters: B1–B4 are alternatives selected by B0, not a bundle. B3 is the broadest because `DrawPlan::vertices` is consumed by frame interpolation and staging upload; it must remain separate from key/lookup experiments.
+The initial rotated fixed-view gate rejected this narrow B3 candidate:
+
+| Worst-view build | Whole process mean | Game thread mean | GX worker mean |
+| --- | ---: | ---: | ---: |
+| Original M2-B | 2,194.5 | 1,480.5 | 583.5 |
+| M2-B3 | 2,243.5 | 1,482.0 | 626.0 |
+| B3 delta | +2.2% | +0.1% | +7.3% |
+
+The B3 runs used BlueWake `8a6376d`, RecompCore `2a4a985`, AppImage SHA-256 `7d7a3cc3...98a2`; the control used AppImage `ebbc9a47...c79e`. Both ran cache-on, pacing-off and diagnostics-off. Manual camera placement limits precision, but the candidate showed no positive signal and does not justify the full tour. Broader shared-vertex ownership remains deferred rather than rejected.
+
+#### M2-B4 — Reduce direct-mapped conflicts
+
+The worst diagnostic view recorded 175,261 conflicts from 175,411 misses. B4 keeps total capacity at 256 entries, splits it into 128 sets with two ways, probes both ways, and uses a one-byte next-victim selector per set. This isolates associativity: cached vertex capacity does not increase, while metadata grows by 128 bytes.
+
+```mermaid
+flowchart LR
+    Key["Address + fingerprint"]
+    Set["Select one of 128 sets"]
+    Ways{"Probe way 0 and way 1"}
+    Hit["Hit: reuse vertices"]
+    Empty["Miss: choose empty way"]
+    Victim["Full set: replace next victim"]
+
+    Key --> Set --> Ways
+    Ways -->|"match"| Hit
+    Ways -->|"empty available"| Empty
+    Ways -->|"both occupied"| Victim
+```
+
+The focused contract adds two identities separated by 128 addresses, proving they map to one set and remain independently reusable. Mutation, unknown-address and dirty-epoch behavior remain in the same `gxcore_tests` contract. The candidate restores B3's initialization placement so the Deck comparison isolates cache layout.
+
+Candidate isolation matters: B1–B4 are alternatives selected by B0, not a bundle. B4 excludes B3 and keeps entry capacity constant. A Deck build must show fewer conflicts and lower GX-worker or frame time; hit-rate improvement alone is insufficient.
 
 ### M3 — Generation-keyed derived state
 
