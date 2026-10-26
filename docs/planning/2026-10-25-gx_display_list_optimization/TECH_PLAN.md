@@ -17,6 +17,8 @@ Current integration: this PR pins [`irregularthanis/RecompCore@739de26`](https:/
 - The decompiled foliage loops load a per-instance matrix and replay shared display lists. This is a source-grounded candidate mechanism, not yet attribution for the measured angle.
 - Merged [#454](https://github.com/chrissotraidis/bluewake/pull/454) reports 34–59% same-transform plan-fusion potential across four rendered scenes, before downstream batching.
 - The M0 diagnostic now carries the originating guest display-list address through frontend packets and draw plans. With `DOL_GXCORE_DL_ATTRIBUTION=1`, each present reports the top 12 addresses by plans plus vertices and reconciled frame totals. Plans fused across different lists use address `0` as an explicit unknown bucket.
+- On an M2-B hit, [`build_draw_plan_into`](https://github.com/irregularthanis/RecompCore/blob/739de26186b636ad251c4062ad20db0f916fda35/GXRuntime/graphics/gxcore/src/gxcore.cpp) still hashes the FIFO payload, resolves distinct indexed arrays, queries dirty epochs, performs a direct-mapped lookup and copies cached vertices into `DrawPlan::vertices`.
+- [`DrawPlan`](https://github.com/irregularthanis/RecompCore/blob/739de26186b636ad251c4062ad20db0f916fda35/GXRuntime/graphics/gxcore/include/gxruntime/gxcore/shader.hpp) owns vertex and index vectors. Aurora reads them for frame interpolation and copies them into interpolation jobs and GPU staging in [`gxcore_draw.cpp`](https://github.com/irregularthanis/RecompCore/blob/739de26186b636ad251c4062ad20db0f916fda35/GXRuntime/graphics/aurora/lib/gfx/gxcore_draw.cpp), so reference-based reuse requires an explicit lifetime contract.
 
 ### M0 attribution findings
 
@@ -43,6 +45,8 @@ Symbol identities come from the upstream [GZLE01 symbol map](https://github.com/
 | Implemented | RecompCore Aurora plan observer | When `DOL_GXCORE_DL_ATTRIBUTION` is set, rank up to 12 display-list addresses per present and report plan/vertex totals | M0 |
 | Proposed | RecompCore `GxCoreSink` / draw submission | Implement #454's same-state, same-transform plan concatenation behind a default-off switch | M1 |
 | Active experiment | RecompCore `GxCoreState::build_draw_plan_into` | Reuse decoded vertices with raw FIFO identity and dirty-epoch invalidation | M2 |
+| Proposed diagnostic | RecompCore GXCore cache counters/profile labels | Attribute hashing, epoch, lookup, collision and copy cost without changing behavior | M2-A0 |
+| Conditional candidates | RecompCore GXCore/frontend | Optimize only the measured dominant cost: payload identity, epoch metadata, vertex ownership or cache layout | M2-A1–A4 |
 | Proposed | RecompCore frontend/GX state | Carry XF, channel, light, texture and array generation IDs so hot cache checks compare compact identities | M3 |
 | Proposed | Aurora GXCore submission | Evaluate matrix-varying instancing only after M1–M3 results establish remaining cost | M4 |
 | Modify after runtime acceptance | BlueWake dependency lock, patch export and performance documentation | Pin the companion runtime revision and record qualification | M5 |
@@ -142,6 +146,60 @@ The worst-view control spread was 4 process jiffies and 9 GX-worker jiffies; M2-
 
 Next gate: complete eviction/shutdown coverage and the full interleaved benchmark methodology before proposing the runtime change upstream.
 
+#### M2 Plan A — Reduce cache-hit overhead
+
+Plan A preserves M2-B’s invalidation and live-state boundary. It does not add workers or enable the cache by default.
+
+```mermaid
+flowchart LR
+    A0["A0: attribute hit cost"]
+    Pick{"Dominant cost"}
+    A1["A1: FIFO identity"]
+    A2["A2: array epochs"]
+    A3["A3: vertex copying"]
+    A4["A4: cache conflicts"]
+    A5["A5: contract and lifecycle"]
+    A6["A6: Deck qualification"]
+
+    A0 --> Pick
+    Pick --> A1
+    Pick --> A2
+    Pick --> A3
+    Pick --> A4
+    A1 --> A5
+    A2 --> A5
+    A3 --> A5
+    A4 --> A5
+    A5 --> A6
+```
+
+| Phase | Practical work | Gate |
+| --- | --- | --- |
+| A0 | Sample or diagnostically count FIFO bytes hashed, array/epoch queries, vertices and bytes copied, conflicts and evictions across stable/slow/worst views | Rank hit-path costs; do not select a structural change without evidence |
+| A1 | Reduce redundant FIFO hashing or reuse an authoritative payload generation; retain hashing when generation coverage is incomplete | Mutation, overlap, alias, length and nested-list tests pass; measured cost falls |
+| A2 | Deduplicate array metadata/range work or compare compact range-scoped epochs | Audit CPU, DMA, host, alias, restore and reset mutation paths; unknown identity bypasses |
+| A3 | First remove allocation/capacity waste; consider shared immutable geometry only after tracing `DrawPlan`, interpolation-job and GPU-staging lifetimes | No stale reference, use-after-free, ordering, interpolation or shutdown regression |
+| A4 | Count true misses, conflicts, evictions and resident bytes before comparing larger or set-associative layouts | Retain only if end-to-end benefit exceeds lookup and memory overhead |
+| A5 | Complete mutation, collision, eviction, reset and shutdown coverage against cached/uncached output | Contract tests and available sanitizers pass |
+| A6 | Compare A: cache off, B: M2-B, C: M2-B plus one isolated optimization using A/A then rotated A/B/C rounds | Improvement exceeds noise without checkpoint, scene or visual regression |
+
+Proposed diagnostic additions—not an implemented API:
+
+```cpp
+// Extend the existing default-off geometry-cache diagnostics.
+geometry_cache_conflicts;
+geometry_cache_evictions;
+geometry_cache_hit_vertices;
+geometry_cache_copied_bytes;
+geometry_cache_fifo_payload_bytes_hashed;
+geometry_cache_epoch_queries;
+geometry_cache_indexed_arrays_examined;
+```
+
+A0 should prefer sampled profiles. Diagnostic counters or timers must remain opt-in; per-draw clock reads are unacceptable in qualification builds unless their overhead is separately measured.
+
+Candidate isolation matters: A1–A4 are alternatives selected by A0, not a bundle. A3 is the broadest because `DrawPlan::vertices` is consumed by frame interpolation and staging upload; it must remain separate from key/lookup experiments.
+
 ### M3 — Generation-keyed derived state
 
 Measure the hit rate and comparison cost of the existing derived-state cache before changing it. If material, carry monotonic XF, channel, light, texture and array identities through the frontend so hot-path equality checks compare compact generations rather than large state blocks.
@@ -179,13 +237,17 @@ Raw private artifacts stay local; public records contain redacted commands, buil
 | M0 | — | — | Attribute repeated work: address-aware histogram reconciled against plan totals and the stable/slow delta |
 | M1 | M0 | M2, M3 | Same-transform fusion: default-off candidate and exact plan-equivalence tests |
 | M2 | M0 | M1, M3 | Geometry/topology reuse: bounded invalidating cache with observable activation |
+| M2-A0 | M2-B evidence | M1, M3 | Attribute successful-hit cost and select one optimization surface |
+| M2-A1–A4 | M2-A0 | Each other only on separate branches | Isolated candidate for the measured dominant cost; unselected phases may be skipped |
+| M2-A5 | Selected M2-A candidate | — | Correctness, invalidation, ownership and lifecycle gate |
+| M2-A6 | M2-A5 | — | A/A plus rotated A/B/C Deck qualification and player-facing checks |
 | M3 | M0 | M1, M2 | Generation-keyed state: replace measured large comparisons without semantic changes |
 | M4 | M1, M2 | — | Matrix-varying instancing: go/no-go prototype only if remaining profiles justify its wider contract |
 | M5 | M0 | — | Integrate accepted candidate(s): RecompCore companion, BlueWake pin/patch, full Deck A/B and documentation |
 
-Critical path: M0 → the strongest of M1/M2/M3 → M5. M4 is conditional, not required for a useful result.
+Critical path for Plan A: M2-B → M2-A0 → one selected A1–A4 candidate → A5 → A6. The broader program remains M0 → the strongest of M1/M2/M3 → M5.
 
-Concurrency limits: M1–M3 may be developed separately after M0 freezes packet identity and counters, but they edit shared GXCore structures and must be integrated serially before combined benchmarking.
+Concurrency limits: A1–A4 may be investigated independently after A0, but they edit the same GXCore hit path and must remain isolated until individual evidence selects one. A3 additionally spans `DrawPlan`, interpolation and renderer upload ownership.
 
 ## Decisions and gaps
 

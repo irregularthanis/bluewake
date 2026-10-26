@@ -6,7 +6,7 @@ Repository baseline: `chrissotraidis/bluewake@b1bf26a0b8a5c1c6e86b9351d658806ff9
 
 Measured build: `bluewake@b721e785fbfbb4f3351d4775d3ba767cae7de88b`, AppImage SHA-256 `406fcf53ae302b0be2ad95739650b5e371090777a7d7da3759202cdde19cc575`
 
-Scope: investigate and reduce repeated CPU-side GX plan work; excluded: visual LOD/culling changes and Smooth Motion policy. This fork PR now carries the measurement-only M0 diagnostic; performance changes remain gated on its evidence.
+Scope: investigate and reduce repeated CPU-side GX plan work, including the successful M2-B cache-hit path; excluded: visual LOD/culling changes, Smooth Motion policy, added worker threads and full draw-plan caching. This fork PR carries the diagnostics and default-off experiments; performance changes remain gated on measured evidence.
 
 ## Problem
 
@@ -60,10 +60,14 @@ flowchart TD
 
 The first implementation should favor reuse over altered visibility. A cache may reuse immutable decoded vertices and topology only when the display-list contents, VCD/VAT layout and referenced vertex arrays are unchanged. Transform, lighting, textures, ordering and guest-visible state remain live per draw. True instancing is a later option because it changes submission shape and interacts with transparency, shadows and Smooth Motion pairing.
 
+M2-B proved that reuse is frequent: 91.5% of eligible lookups hit and the repeated worst view used 5.1% less GX-worker CPU. Total process CPU improved only 1.1%, indicating that key construction, validation, lookup or vertex copying consumes most of the avoided decode cost. The next M2 work first attributes that hit-path cost, then tests only the dominant mechanism in isolation.
+
 ## Outcomes and acceptance
 
 - Name the display-list identities responsible for the stable/slow delta; an unattributed aggregate is insufficient.
 - Reduce GX-worker CPU time or rendered frame time in the slow view. A lower plan count alone is not a performance result.
+- Attribute M2-B hit-path cost among FIFO hashing, array/epoch validation, cache lookup and vertex copying before selecting another implementation.
+- Retain a hit-path optimization only when its improvement exceeds A/A noise in GX-worker or frame time; report CPU-only gains as such.
 - Preserve guest checkpoints, draw order, real rendered frames and Smooth Motion output across the benchmark scenes.
 - Keep runtime behavior unchanged when the candidate is disabled until platform qualification is complete.
 - Treat missing attribution, cache activation, complete scenes, or visual evidence as inconclusive rather than passing.
@@ -73,6 +77,8 @@ The first implementation should favor reuse over altered visibility. A cache may
 - Runtime changes belong in a companion `chrissotraidis/RecompCore` PR first; BlueWake then pins and exports the accepted runtime revision.
 - Display-list bytes and referenced guest arrays can change. Cache validity must use content or mutation identity, never a guest address alone.
 - Counts are recorded before all renderer batching; no proportional FPS or GPU-call reduction is assumed.
+- Unknown or incompletely tracked guest-memory identity must bypass reuse. Address-only identity is never sufficient.
+- Shared immutable geometry is not assumed safe: `DrawPlan` consumers and asynchronous interpolation/upload lifetimes must be proven before changing ownership.
 - Private disc data, saves, modules, AppImages and raw device logs remain outside GitHub.
 
 ## References
