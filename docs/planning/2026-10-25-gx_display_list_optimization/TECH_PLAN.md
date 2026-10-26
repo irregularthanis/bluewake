@@ -1,6 +1,6 @@
 # TECH_PLAN — Repeated GX display-list optimization
 
-Status: M0 attribution complete; optimization candidate selection ready
+Status: M0 attribution complete; first M2 candidate measured and rejected
 
 Baseline: [`chrissotraidis/bluewake@b1bf26a`](https://github.com/chrissotraidis/bluewake/commit/b1bf26a0b8a5c1c6e86b9351d658806ff9eb3c1c)
 
@@ -42,7 +42,7 @@ Symbol identities come from the upstream [GZLE01 symbol map](https://github.com/
 | Implemented | RecompCore `RetailGxFrontend::write_display_list` / packet metadata | Carry the active display-list address through nested parsing, queued draws and consumed plans; preserve address `0` for unattributed or cross-list fused work | M0 |
 | Implemented | RecompCore Aurora plan observer | When `DOL_GXCORE_DL_ATTRIBUTION` is set, rank up to 12 display-list addresses per present and report plan/vertex totals | M0 |
 | Proposed | RecompCore `GxCoreSink` / draw submission | Implement #454's same-state, same-transform plan concatenation behind a default-off switch | M1 |
-| Proposed | RecompCore `GxCoreState::build_draw_plan_into` | Reuse decoded vertices and topology for immutable repeated display-list geometry | M2 |
+| Rejected experiment | RecompCore `GxCoreState::build_draw_plan_into` | Content-hash decoded-vertex cache activated frequently but increased GX/CPU cost | M2 |
 | Proposed | RecompCore frontend/GX state | Carry XF, channel, light, texture and array generation IDs so hot cache checks compare compact identities | M3 |
 | Proposed | Aurora GXCore submission | Evaluate matrix-varying instancing only after M1–M3 results establish remaining cost | M4 |
 | Modify after runtime acceptance | BlueWake dependency lock, patch export and performance documentation | Pin the companion runtime revision and record qualification | M5 |
@@ -96,7 +96,9 @@ An address is never sufficient: guest code may rewrite a list or an indexed arra
 
 The first M2 candidate uses `DOL_GXCORE_GEOMETRY_CACHE=1`. It stores at most 256 decoded-vertex entries in thread-local direct-mapped storage. A key contains the nonzero display-list address, VCD/VAT layout, current fallback matrix, raw FIFO payload and every indexed guest-array element actually read. Guest payload or array mutations therefore miss without reusing stale geometry.
 
-Current status: decoded-vertex reuse, bounded storage, activation counters and payload/array mutation tests exist in [`RecompCore@857ca0d`](https://github.com/irregularthanis/RecompCore/commit/857ca0dc720b028e66328d5feef207beb691af3f). Topology reuse, eviction/shutdown coverage, retained-byte telemetry and matched Deck qualification remain open.
+Current status: decoded-vertex reuse, bounded storage, activation counters and payload/array mutation tests exist in [`RecompCore@857ca0d`](https://github.com/irregularthanis/RecompCore/commit/857ca0dc720b028e66328d5feef207beb691af3f). The Deck session recorded 1,805,242 hits and 170,381 misses among eligible draws (91.4% hit rate), but a near-matched 15-second worst-view comparison regressed from about 28 to 24 game FPS, raised GX-worker load from about 26% to 41–43%, and consumed 2,231 versus 2,033 process CPU jiffies. The content hashing needed to prove array equality costs more than the saved decode, so this implementation is rejected.
+
+Further M2 work must avoid scanning the geometry to validate it. A generation/dirty-epoch key may be reconsidered under M3, but this content-hash cache must not be enabled or submitted upstream.
 
 ### M3 — Generation-keyed derived state
 

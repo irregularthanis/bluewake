@@ -1,6 +1,6 @@
 # PROGRESS — Repeated GX display-list optimization
 
-Status: M0 attribution complete; implementation candidates unblocked
+Status: M0 complete; first M2 candidate rejected on Deck
 
 [Product brief](PRD.md) · [Technical plan](TECH_PLAN.md)
 
@@ -32,7 +32,7 @@ Parallel with M1 and M3; owns geometry keys, cache storage and invalidation.
 - [ ] M2-T03: Test mutable lists/arrays, unknown addresses, eviction and shutdown.
 - [ ] M2-T04: Run the matched Deck qualification and retain only a measurable improvement.
 
-Candidate status: [`RecompCore@857ca0d`](https://github.com/irregularthanis/RecompCore/commit/857ca0dc720b028e66328d5feef207beb691af3f) implements default-off decoded-vertex reuse with bounded storage and hit/miss/bypass counters. Direct-payload mutation, indexed-array mutation and unknown-address fallback pass focused tests. Topology reuse, eviction/shutdown coverage and Deck evidence remain open, so no M2 task is complete yet.
+Candidate status: [`RecompCore@857ca0d`](https://github.com/irregularthanis/RecompCore/commit/857ca0dc720b028e66328d5feef207beb691af3f) is rejected. Its default-off decoded-vertex cache passed focused correctness tests and hit 91.4% of eligible draws, but content hashing increased GX-worker load and reduced worst-view game speed. No M2 task is complete; any replacement must use a cheaper identity such as validated generations or dirty epochs.
 
 ### M3: Generation-keyed derived state (depends: M0)
 
@@ -63,5 +63,6 @@ Parallel with M1 and M2; owns state generations and cache-hit comparison.
 | M0-T03 | [RecompCore `4b5f0ae`](https://github.com/irregularthanis/RecompCore/commit/4b5f0ae989fcbd8f544984fdc79679acd25e87c3); BlueWake `24291d4`; AppImage SHA-256 `f84ff19b...948ff` | Standard Clang 18 container build; verify compiled diagnostic strings and runtime activation | Linux build plus Steam Deck LCD Game Mode | Build, AppImage packaging and ABI audit passed; live process emitted per-present attribution records. |
 | M0-T04 | Private logs: stable `9ed7955d...f692`, slow `6efea0f9...fb70`, worst `f8b2bdd6...a83cd`; [GZLE01 symbols](https://github.com/zeldaret/tww/blob/main/config/GZLE01/symbols.txt) | Matched 15-second fixed-camera captures; aggregate top-12 identities per present and map main-DOL addresses to symbols | Outset state; 449/388/353 frames; pacing disabled | Plans/frame 500.63 → 983.61 → 1,776.96. Grass rises 115 → 840 from slow to worst, explaining 91% of that plan delta. Prioritize M2 geometry reuse for repeated grass lists. |
 | M2 candidate | [RecompCore `857ca0d`](https://github.com/irregularthanis/RecompCore/commit/857ca0dc720b028e66328d5feef207beb691af3f) | Build and run focused `gxcore_tests`; inspect opt-in counters | GCC 16 isolated GXRuntime build; `DOL_GXCORE_GEOMETRY_CACHE=1` test process | PASS: repeat hit, direct payload mutation miss, indexed-array mutation miss and unknown-address bypass. Full frontend test build is independently blocked by the pre-existing unqualified `RenderPacket` name in `frontend_replay_test.cpp`. |
+| M2 Deck decision | Private candidate log `519c1b5c...d15ac1`; control `b4726b7e...c5c28` | Same AppImage, cache on/off, near-matched worst grass-heavy angle, 15-second process sample and runtime FPS/GX markers | Steam Deck LCD, Game Mode, pacing disabled | REJECT: 91.4% eligible hit rate, but cache-on was about 24 FPS versus 28 control; GX worker 41–43% versus 26%; CPU 2,231 versus 2,033 jiffies. |
 
 Private logs, saves, translated modules and AppImages are not published.
