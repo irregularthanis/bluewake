@@ -39,17 +39,17 @@ Parallel with M1 and M3; owns geometry keys, cache storage and invalidation.
 
 M2-T03 and M2-T04 remain open: FPS was not captured, and eviction/shutdown plus the full interleaved methodology still require validation.
 
-#### M2 Plan A: Optimize successful hits (depends: M2-B evidence)
+#### M2-B follow-up: Optimize successful hits (depends: M2-B evidence)
 
-- [ ] M2-A0-T01: Attribute FIFO hashing, array/epoch validation, lookup/conflicts and vertex-copy work in stable, slow and worst views.
-- [ ] M2-A0-T02: Rank costs with activation counts and select one A1–A4 candidate; record a no-go if no component dominates.
-- [ ] M2-A1-T01: If selected, reduce FIFO identity cost without weakening payload mutation coverage.
-- [ ] M2-A2-T01: If selected, reduce indexed-array epoch work after auditing runtime mutation paths.
-- [ ] M2-A3-T01: If selected, map `DrawPlan`/interpolation/upload lifetimes before prototyping reduced vertex copying.
-- [ ] M2-A4-T01: If selected, measure conflicts, evictions and resident bytes before changing cache organization.
-- [ ] M2-A5-T01: Complete mutation, collision, eviction, reset, shutdown and cached-versus-uncached equivalence tests.
-- [ ] M2-A6-T01: Run A/A then rotated cache-off/M2-B/optimized-candidate Deck rounds across fixed views and the five-scene tour.
-- [ ] M2-A6-T02: Record FPS/frame-time, GX-worker/process CPU, activation and player-facing results; retain only a repeatable improvement.
+- [ ] M2-B0-T01: Attribute FIFO hashing, array/epoch validation, lookup/conflicts and vertex-copy work in stable, slow and worst views.
+- [ ] M2-B0-T02: Rank costs with activation counts and select one B1–B4 candidate; record a no-go if no component dominates.
+- [ ] M2-B1-T01: If selected, reduce FIFO identity cost without weakening payload mutation coverage.
+- [ ] M2-B2-T01: If selected, reduce indexed-array epoch work after auditing runtime mutation paths.
+- [ ] M2-B3-T01: If selected, map `DrawPlan`/interpolation/upload lifetimes before prototyping reduced vertex copying.
+- [ ] M2-B4-T01: If selected, measure conflicts, evictions and resident bytes before changing cache organization.
+- [ ] M2-B5-T01: Complete mutation, collision, eviction, reset, shutdown and cached-versus-uncached equivalence tests.
+- [ ] M2-B6-T01: Run A/A then rotated cache-off/M2-B/optimized-candidate Deck rounds across fixed views and the five-scene tour.
+- [ ] M2-B6-T02: Record FPS/frame-time, GX-worker/process CPU, activation and player-facing results; retain only a repeatable improvement.
 
 ### M3: Generation-keyed derived state (depends: M0)
 
