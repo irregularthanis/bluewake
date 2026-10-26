@@ -112,7 +112,7 @@
     {
       "id": "recompcore",
       "url": "https://github.com/irregularthanis/RecompCore",
-      "sha": "4b5f0ae98955f1b30ca8aa45e45ae2ab8294df5b",
+      "sha": "4b5f0ae989fcbd8f544984fdc79679acd25e87c3",
       "branch": "perf/gx-display-list-attribution-current",
       "upstream_pull_request": null,
       "license": "GPL-3.0",

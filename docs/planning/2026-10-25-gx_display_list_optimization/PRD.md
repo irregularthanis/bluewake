@@ -82,5 +82,5 @@ The first implementation should favor reuse over altered visibility. A cache may
 - [Outset draw census](../../status/OUTSET_DRAWS_2026-10-22.md)
 - [Steam Deck performance report #215](https://github.com/chrissotraidis/bluewake/issues/215)
 - [Fork integration PR #2](https://github.com/irregularthanis/bluewake/pull/2)
-- [M0 RecompCore diagnostic](https://github.com/irregularthanis/RecompCore/commit/4b5f0ae98955f1b30ca8aa45e45ae2ab8294df5b)
+- [M0 RecompCore diagnostic](https://github.com/irregularthanis/RecompCore/commit/4b5f0ae989fcbd8f544984fdc79679acd25e87c3)
 - [Wind Waker grass renderer](https://github.com/zeldaret/tww/blob/main/src/d/d_grass.cpp), [tree renderer](https://github.com/zeldaret/tww/blob/main/src/d/d_tree.cpp), [wood renderer](https://github.com/zeldaret/tww/blob/main/src/d/d_wood.cpp), and [flower renderer](https://github.com/zeldaret/tww/blob/main/src/d/d_flower.cpp)
