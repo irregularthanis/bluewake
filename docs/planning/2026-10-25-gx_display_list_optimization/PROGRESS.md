@@ -1,6 +1,6 @@
 # PROGRESS — Repeated GX display-list optimization
 
-Status: M0 diagnostic built; attribution capture pending
+Status: M0 diagnostic wired into the builder; corrected build pending
 
 [Product brief](PRD.md) · [Technical plan](TECH_PLAN.md)
 
@@ -58,6 +58,6 @@ Parallel with M1 and M2; owns state generations and cache-hit comparison.
 | --- | --- | --- | --- | --- |
 | M0-T01 | Local stable/slow counter captures; tested BlueWake `b721e785fbfb`; AppImage SHA-256 `406fcf53...cc575` | 15-second `[cutscene]` plan-counter captures at two fixed camera angles | Steam Deck LCD, Game Mode, Outset, Smooth Motion disabled | Stable 445 frames at 629.13 plans/frame; slow 399 at 1,076.34; +71.1%; no skipped/cull/decode failures |
 | M0-T02 | BlueWake main `b1bf26a`; RecompCore GXCore/frontend sources; zeldaret/tww foliage sources | Source inspection plus existing flat profiles | Current main docs and tested candidate source | Hot path mapped; foliage loops are candidates, not yet attributed owners |
-| M0-T03 | [RecompCore `0fe472a`](https://github.com/irregularthanis/RecompCore/commit/0fe472a73232e5bbfc53698213915b3ac18cccd0); BlueWake pin in [fork PR #2](https://github.com/irregularthanis/bluewake/pull/2); local build `gx-fix-c7b7ced2d88c` | Build the pinned runtime through the standard containerized AppImage flow; inspect the diagnostic and focused source tests | Clang 18; x86-64-v3; all normal optimization switches enabled | Build and AppImage packaging passed. The diagnostic carries display-list identity into plans and reports per-present plan/vertex rankings when enabled. Runtime attribution capture remains M0-T04. |
+| M0-T03 | [RecompCore `4b5f0ae`](https://github.com/irregularthanis/RecompCore/commit/4b5f0ae98955f1b30ca8aa45e45ae2ab8294df5b); BlueWake pin in [fork PR #2](https://github.com/irregularthanis/bluewake/pull/2) | Replay the diagnostic on current runtime base `1446450`; pin both `config/dependencies.lock.json` and `scripts/builder/profiles/bluewake.sh` | Fork-only integration | Diagnostic source is integrated. The earlier `gx-fix-c7b7ced2d88c` AppImage used builder-profile pin `47a5229` and is rejected as evidence; corrected build and M0-T04 capture remain pending. |
 
 Private logs, saves, translated modules and AppImages are not published.

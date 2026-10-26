@@ -1,10 +1,10 @@
 # TECH_PLAN — Repeated GX display-list optimization
 
-Status: M0 diagnostic implemented; attribution capture pending
+Status: M0 diagnostic wired into the Linux builder; corrected build pending
 
 Baseline: [`chrissotraidis/bluewake@b1bf26a`](https://github.com/chrissotraidis/bluewake/commit/b1bf26a0b8a5c1c6e86b9351d658806ff9eb3c1c)
 
-Current integration: this PR pins [`irregularthanis/RecompCore@0fe472a`](https://github.com/irregularthanis/RecompCore/commit/0fe472a73232e5bbfc53698213915b3ac18cccd0), the fork-only M0 attribution diagnostic. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
+Current integration: this PR pins [`irregularthanis/RecompCore@4b5f0ae`](https://github.com/irregularthanis/RecompCore/commit/4b5f0ae98955f1b30ca8aa45e45ae2ab8294df5b), the fork-only M0 attribution diagnostic replayed on BlueWake's current `1446450` runtime base. Both the dependency inventory and the builders' authoritative profile use this revision. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
 
 [Product brief](PRD.md) · [Tracker](PROGRESS.md)
 
@@ -107,4 +107,4 @@ Concurrency limits: M1–M3 may be developed separately after M0 freezes packet 
 - [Merged draw census and fusion constraints](../../status/OUTSET_DRAWS_2026-10-22.md)
 - [Issue #215](https://github.com/chrissotraidis/bluewake/issues/215)
 - [Fork integration PR #2](https://github.com/irregularthanis/bluewake/pull/2)
-- [M0 RecompCore diagnostic](https://github.com/irregularthanis/RecompCore/commit/0fe472a73232e5bbfc53698213915b3ac18cccd0)
+- [M0 RecompCore diagnostic](https://github.com/irregularthanis/RecompCore/commit/4b5f0ae98955f1b30ca8aa45e45ae2ab8294df5b)
