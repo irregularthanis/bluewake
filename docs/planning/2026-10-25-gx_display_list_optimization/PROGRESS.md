@@ -1,6 +1,6 @@
 # PROGRESS — Repeated GX display-list optimization
 
-Status: M0 complete; M2-B preliminary Deck A/B positive, full qualification pending
+Status: M0 complete; M2-B3 implemented and building, Deck qualification pending
 
 [Product brief](PRD.md) · [Technical plan](TECH_PLAN.md)
 
@@ -46,6 +46,9 @@ M2-T03 and M2-T04 remain open: FPS was not captured, and eviction/shutdown plus 
 - [ ] M2-B1-T01: If selected, reduce FIFO identity cost without weakening payload mutation coverage.
 - [ ] M2-B2-T01: If selected, reduce indexed-array epoch work after auditing runtime mutation paths.
 - [x] M2-B3-T01: Map `DrawPlan`/interpolation/upload lifetimes and implement the narrow hit-path zero-initialization removal without changing ownership.
+- [ ] M2-B3-T02: Complete the standard Clang 18 container build and verify the AppImage contains BlueWake `8a6376d` with RecompCore `2a4a985`.
+- [ ] M2-B3-T03: Measure A/A noise, then rotate cache-off, original M2-B and M2-B3 across stable, slow and worst fixed views.
+- [ ] M2-B3-T04: Run the five-scene tour and player-facing Outset traversal; compare checkpoints, rendered behavior, frame time and CPU.
 - [ ] M2-B4-T01: If selected, measure conflicts, evictions and resident bytes before changing cache organization.
 - [ ] M2-B5-T01: Complete mutation, collision, eviction, reset, shutdown and cached-versus-uncached equivalence tests.
 - [ ] M2-B6-T01: Run A/A then rotated cache-off/M2-B/optimized-candidate Deck rounds across fixed views and the five-scene tour.
@@ -86,5 +89,6 @@ Parallel with M1 and M2; owns state generations and cache-hit comparison.
 | M2-B0 diagnostic | [RecompCore `3586581`](https://github.com/irregularthanis/RecompCore/commit/3586581a76cd4c7720357271a4c49449c3eee08b) | Build and run focused `gxcore_tests` with `DOL_GXCORE_OPT_LOG=1` | GCC 16 isolated GXRuntime build | PASS: reports payload bytes, epoch queries, arrays examined, hit vertices, copied bytes, conflicts and evictions. Detailed updates remain opt-in; Deck attribution pending. |
 | M2-B0-T01 | Private stable `b5e2bfde...900e7`, slow `3c27693b...67f`, worst `717c9fff...a2c` counter logs and private worst-view `perf.data` | Three isolated fixed-view runs plus 15-second 499 Hz cycles profile | Steam Deck LCD, Game Mode, pacing disabled; BlueWake `f27330a`, RecompCore `3586581` | Hit rates 78.5–90.8%; cached copy volume 15.6–20.3× FIFO hash volume. Worst-view profile: `build_draw_plan_into` 3.55%, vector zero-fill 0.49%, dirty epoch 0.10%, visible long hash 0.05%. |
 | M2-B0-T02 / M2-B3-T01 | [RecompCore `2a4a985`](https://github.com/irregularthanis/RecompCore/commit/2a4a985615029acedf1de76e17c6126ace1d66ce) | Source lifetime audit; defer `plan.vertices.assign(...)` from pre-lookup to miss branch; focused `gxcore_tests` | GCC 16 isolated GXRuntime build | PASS: hit path no longer zeroes the complete vector immediately before cached assignment; ownership and cached copy remain unchanged. Deck A/B pending. |
+| M2-B3-T02 | BlueWake [`8a6376d`](https://github.com/irregularthanis/bluewake/commit/8a6376d5dd923a68652217b21f5282562c5831b7), RecompCore [`2a4a985`](https://github.com/irregularthanis/RecompCore/commit/2a4a985615029acedf1de76e17c6126ace1d66ce) | Standard Clang 18 CI-container build with `-march=x86-64-v3` | Local build directory `gx-cache-m2b3-8a6376d5dd92` | IN PROGRESS: dependency receipt confirms the intended B3 sources; completed AppImage and ABI result not yet recorded. |
 
 Private logs, saves, translated modules and AppImages are not published.

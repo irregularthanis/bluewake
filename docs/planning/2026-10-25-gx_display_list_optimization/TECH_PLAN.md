@@ -46,7 +46,8 @@ Symbol identities come from the upstream [GZLE01 symbol map](https://github.com/
 | Proposed | RecompCore `GxCoreSink` / draw submission | Implement #454's same-state, same-transform plan concatenation behind a default-off switch | M1 |
 | Active experiment | RecompCore `GxCoreState::build_draw_plan_into` | Reuse decoded vertices with raw FIFO identity and dirty-epoch invalidation | M2 |
 | Implemented diagnostic | RecompCore GXCore cache counters/profile labels | Attribute hashing, epoch, lookup, collision and copy volume without changing cache behavior | M2-B0 |
-| Conditional candidates | RecompCore GXCore/frontend | Optimize only the measured dominant cost: payload identity, epoch metadata, vertex ownership or cache layout | M2-B1–B4 |
+| Implemented candidate | RecompCore `GxCoreState::build_draw_plan_into` | Initialize `DrawPlan::vertices` only on a miss; retain the existing cached-vector assignment and ownership | M2-B3 |
+| Deferred alternatives | RecompCore GXCore/frontend | Revisit payload identity, epoch metadata, broader vertex ownership or cache layout only if B3 evidence is insufficient | M2-B1, B2, B4 |
 | Proposed | RecompCore frontend/GX state | Carry XF, channel, light, texture and array generation IDs so hot cache checks compare compact identities | M3 |
 | Proposed | Aurora GXCore submission | Evaluate matrix-varying instancing only after M1–M3 results establish remaining cost | M4 |
 | Modify after runtime acceptance | BlueWake dependency lock, patch export and performance documentation | Pin the companion runtime revision and record qualification | M5 |
@@ -207,6 +208,35 @@ B0 should prefer sampled profiles. These detailed counters update only with `DOL
 | Worst | 90.8% | 11.63 GB / 573 MB | 5,403,981 | 175,261 / 175,411 |
 
 A 15-second `perf` capture in the worst view attributed 3.55% of total sampled cycles to `build_draw_plan_into`, 0.49% to `vector<float>::assign(size, value)`, 0.10% to `dol_guest_memory_dirty_epoch`, and 0.05% to the visible long-payload hash symbol. Source inspection found that every lookup initialized the full output vector before a hit replaced it with cached vertices. B3 therefore starts with the narrow [`2a4a985`](https://github.com/irregularthanis/RecompCore/commit/2a4a985615029acedf1de76e17c6126ace1d66ce) change: defer zero-initialization until a miss. It preserves the existing vector copy and ownership boundary; broader zero-copy work remains out of scope until this candidate is qualified.
+
+#### M2-B3 — Avoid redundant hit-path initialization
+
+The hypothesis is deliberately narrow: because 78.5–90.8% of eligible lookups hit in the measured views, removing one full-vector write from each hit should reduce memory and CPU work while leaving cache correctness unchanged.
+
+```mermaid
+flowchart LR
+    Lookup{"Geometry cache lookup"}
+    Hit["Hit: copy cached vertices"]
+    Init["Miss: size and zero vertex vector"]
+    Decode["Decode vertices into vector"]
+    Live["Continue with live draw state"]
+
+    Lookup -->|"hit"| Hit --> Live
+    Lookup -->|"miss"| Init --> Decode --> Live
+```
+
+[`GxCoreState::build_draw_plan_into`](https://github.com/irregularthanis/RecompCore/blob/2a4a985615029acedf1de76e17c6126ace1d66ce/GXRuntime/graphics/gxcore/src/gxcore.cpp) previously called `plan.vertices.assign(count, 0.f)` before lookup. [`2a4a985`](https://github.com/irregularthanis/RecompCore/commit/2a4a985615029acedf1de76e17c6126ace1d66ce) moves that call into the miss branch:
+
+```cpp
+if (geometry_hit) {
+  plan.vertices = geometry_entry->vertices;
+} else {
+  plan.vertices.assign(vertex_count * kVertexFloats, 0.f);
+  // Existing decode path remains unchanged.
+}
+```
+
+Qualification compares three modes built from the same BlueWake source and toolchain: cache off, original M2-B (`3586581`), and M2-B3 (`2a4a985`). First measure A/A noise, then rotate the three modes across stable, slow and worst fixed views and the five-scene tour. Record source hashes, activation counters, FPS/frame time, process and GX-worker CPU, checkpoints and rendered observations. Retain B3 only if its improvement over original M2-B exceeds A/A noise; a successful build or fewer writes alone is insufficient.
 
 Candidate isolation matters: B1–B4 are alternatives selected by B0, not a bundle. B3 is the broadest because `DrawPlan::vertices` is consumed by frame interpolation and staging upload; it must remain separate from key/lookup experiments.
 

@@ -62,11 +62,14 @@ The first implementation should favor reuse over altered visibility. A cache may
 
 M2-B proved that reuse is frequent: 91.5% of eligible lookups hit and the repeated worst view used 5.1% less GX-worker CPU. Total process CPU improved only 1.1%, indicating that key construction, validation, lookup or vertex copying consumes most of the avoided decode cost. The next M2 work first attributes that hit-path cost, then tests only the dominant mechanism in isolation.
 
+M2-B0 then found a narrower avoidable cost. Stable, slow and worst views copied 5.90–12.44 GB of cached vertices, while a worst-view cycles profile attributed 0.49% of the full process to zero-initializing `DrawPlan::vertices`. The initialization occurs before cache lookup, so a successful hit immediately overwrites those zeros with cached vertices. M2-B3 removes only that redundant initialization; it does not change cache identity, invalidation, vertex ownership or the subsequent cached-vector copy.
+
 ## Outcomes and acceptance
 
 - Name the display-list identities responsible for the stable/slow delta; an unattributed aggregate is insufficient.
 - Reduce GX-worker CPU time or rendered frame time in the slow view. A lower plan count alone is not a performance result.
 - Attribute M2-B hit-path cost among FIFO hashing, array/epoch validation, cache lookup and vertex copying before selecting another implementation.
+- Test whether moving vertex initialization to the miss path improves M2-B beyond measurement noise without changing output or lifecycle behavior.
 - Retain a hit-path optimization only when its improvement exceeds A/A noise in GX-worker or frame time; report CPU-only gains as such.
 - Preserve guest checkpoints, draw order, real rendered frames and Smooth Motion output across the benchmark scenes.
 - Keep runtime behavior unchanged when the candidate is disabled until platform qualification is complete.
