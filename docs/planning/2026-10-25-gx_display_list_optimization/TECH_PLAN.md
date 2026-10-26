@@ -47,7 +47,21 @@ Symbol identities come from the upstream [GZLE01 symbol map](https://github.com/
 | Proposed | Aurora GXCore submission | Evaluate matrix-varying instancing only after M1–M3 results establish remaining cost | M4 |
 | Modify after runtime acceptance | BlueWake dependency lock, patch export and performance documentation | Pin the companion runtime revision and record qualification | M5 |
 
-## Cache contract
+## Milestone plans
+
+### M0 — Attribute repeated work
+
+Carry the originating display-list address from `RetailGxFrontend::write_display_list` through consumed draws and `DrawPlan`. The opt-in present observer ranks plans and vertices by address, while address `0` keeps unknown FIFO and cross-list fused work explicit.
+
+Status: complete. Stable, slow and worst Outset captures attribute 91% of the slow-to-worst plan increase to `l_Oba_kusa_aDL`. The evidence and private-log hashes are recorded above and in [PROGRESS.md](PROGRESS.md#m0-attribute-repeated-work).
+
+### M1 — Same-transform fusion
+
+Implement the constrained opportunity measured by merged [#454](https://github.com/chrissotraidis/bluewake/pull/454). Concatenate only adjacent plans whose transforms, pipeline/resources, viewport/scissor, constants, depth/blend behavior and Smooth Motion identity are compatible; preserve ordering and rebase indices exactly.
+
+Keep the candidate default-off. Unit coverage must exercise every rejection boundary, and Deck evidence must show both fewer plans and lower GX-worker or frame time before retention.
+
+### M2 — Geometry and topology reuse
 
 The cache must separate immutable geometry identity from live draw state:
 
@@ -80,9 +94,27 @@ struct GeometryKey {
 
 An address is never sufficient: guest code may rewrite a list or an indexed array in place. Unknown-address FIFO draws use the uncached path initially. Cache eviction must be bounded, shutdown must release entries before graphics teardown, and a diagnostic mode must report hits, misses, invalidations and bytes retained.
 
-The first M2 candidate uses `DOL_GXCORE_GEOMETRY_CACHE=1`. It stores at most 256 decoded-vertex entries in thread-local direct-mapped storage. A key contains the nonzero display-list address, VCD/VAT layout, current fallback matrix, raw FIFO payload and every indexed guest-array element actually read. Guest payload or array mutations therefore miss without reusing stale geometry. Topology reuse, explicit byte-retention telemetry and Deck qualification remain follow-ups.
+The first M2 candidate uses `DOL_GXCORE_GEOMETRY_CACHE=1`. It stores at most 256 decoded-vertex entries in thread-local direct-mapped storage. A key contains the nonzero display-list address, VCD/VAT layout, current fallback matrix, raw FIFO payload and every indexed guest-array element actually read. Guest payload or array mutations therefore miss without reusing stale geometry.
 
-Same-transform fusion must preserve order, pipeline/resources, viewport/scissor, constants, depth/blend behavior, index bounds and Smooth Motion tags. Matrix-varying instancing additionally needs an explicit per-instance transform contract and cannot reuse a single interpolation identity for unrelated objects.
+Current status: decoded-vertex reuse, bounded storage, activation counters and payload/array mutation tests exist in [`RecompCore@857ca0d`](https://github.com/irregularthanis/RecompCore/commit/857ca0dc720b028e66328d5feef207beb691af3f). Topology reuse, eviction/shutdown coverage, retained-byte telemetry and matched Deck qualification remain open.
+
+### M3 — Generation-keyed derived state
+
+Measure the hit rate and comparison cost of the existing derived-state cache before changing it. If material, carry monotonic XF, channel, light, texture and array identities through the frontend so hot-path equality checks compare compact generations rather than large state blocks.
+
+Every generation must advance on the corresponding guest-visible mutation. Verification compares cached and uncached plans and rejects the candidate if compact keys do not reduce measured GX-worker or frame time.
+
+### M4 — Matrix-varying instancing decision
+
+Re-profile after accepted M1–M3 work. Prototype instancing only if repeated lists remain expensive and differ primarily by transform; otherwise record a measured no-go decision.
+
+Any prototype must define per-instance transforms, ordering, transparency, shadows and Smooth Motion pairing. It cannot reuse one interpolation identity across unrelated objects.
+
+### M5 — Integrate and qualify
+
+For each retained candidate, land the companion RecompCore change, update BlueWake's authoritative builder pin and dependency inventory, then build the standard SteamOS-compatible AppImage. Run A/A noise measurement followed by interleaved A/B across the full Deck methodology and player-facing Outset/transition checks.
+
+Only publish redacted commands, source/build identities, activation counters and aggregate results. Private saves, translated modules, logs and AppImages remain local.
 
 ## Verification
 
