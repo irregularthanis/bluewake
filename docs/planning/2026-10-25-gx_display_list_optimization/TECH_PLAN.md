@@ -80,25 +80,49 @@ flowchart LR
     Live --> Plan
 ```
 
-Proposed, source-shaped key—not an implemented API:
+`DOL_GXCORE_GEOMETRY_CACHE=1` enables a thread-local, 256-entry direct-mapped cache. It reuses decoded vertices only; transforms, lighting, textures, depth, ordering and other draw state remain live.
 
-```cpp
-struct GeometryKey {
-  uint32_t display_list_address;
-  uint32_t display_list_size;
-  uint64_t display_list_content_generation;
-  uint64_t vertex_layout_generation;
-  std::array<uint64_t, kArrayCount> array_generations;
-};
-```
+#### Candidate comparison
 
-An address is never sufficient: guest code may rewrite a list or an indexed array in place. Unknown-address FIFO draws use the uncached path initially. Cache eviction must be bounded, shutdown must release entries before graphics teardown, and a diagnostic mode must report hits, misses, invalidations and bytes retained.
+| Property | M2-A: content validation | M2-B: dirty-epoch validation |
+| --- | --- | --- |
+| RecompCore | [`857ca0d`](https://github.com/irregularthanis/RecompCore/commit/857ca0dc720b028e66328d5feef207beb691af3f) | [`739de26`](https://github.com/irregularthanis/RecompCore/commit/739de26186b636ad251c4062ad20db0f916fda35) |
+| Display-list identity | Nonzero address + raw FIFO payload | Nonzero address + raw FIFO payload |
+| Decode layout | VCD/VAT walk key + fallback PN matrix | VCD/VAT walk key + fallback PN matrix |
+| Indexed-array validation | Hash every referenced element byte | Hash base, stride, span and one dirty epoch per distinct array |
+| Unknown address/epoch | Bypass | Bypass |
+| Storage | 256 thread-local direct-mapped entries | Same |
+| Default | Off | Off |
+| Status | Rejected on Deck | Focused tests pass; Deck A/B pending |
 
-The first M2 candidate uses `DOL_GXCORE_GEOMETRY_CACHE=1`. It stores at most 256 decoded-vertex entries in thread-local direct-mapped storage. A key contains the nonzero display-list address, VCD/VAT layout, current fallback matrix, raw FIFO payload and every indexed guest-array element actually read. Guest payload or array mutations therefore miss without reusing stale geometry.
+The raw FIFO payload covers direct attributes and array indices. M2-B obtains indexed-array epochs from [`dol_guest_memory_dirty_epoch`](https://github.com/irregularthanis/RecompCore/blob/739de26186b636ad251c4062ad20db0f916fda35/GXRuntime/src/guest_memory_dirty.c); an unavailable epoch selects the uncached path.
 
-The first implementation in [`RecompCore@857ca0d`](https://github.com/irregularthanis/RecompCore/commit/857ca0dc720b028e66328d5feef207beb691af3f) recorded 1,805,242 hits and 170,381 misses among eligible draws (91.4% hit rate), but a near-matched 15-second worst-view comparison regressed from about 28 to 24 game FPS, raised GX-worker load from about 26% to 41–43%, and consumed 2,231 versus 2,033 process CPU jiffies. Its per-element content scan cost more than the saved decode, so that validation design is rejected.
+#### M2-A measured result
 
-The second candidate in [`RecompCore@739de26`](https://github.com/irregularthanis/RecompCore/commit/739de26186b636ad251c4062ad20db0f916fda35) keeps the raw FIFO payload in the key but validates each distinct indexed-array span with the existing guest-memory dirty epoch. It bypasses when an epoch is unavailable. Focused tests cover repeat hits, direct-payload misses, dirty-array misses and unknown-range bypasses. It remains default-off and requires the same-build Deck qualification before retention.
+| Metric | Cache off | Cache on | Delta |
+| --- | ---: | ---: | ---: |
+| Eligible cache hits | — | 1,805,242 | — |
+| Eligible cache misses | — | 170,381 | — |
+| Eligible hit rate | — | 91.4% | — |
+| Game rate | ~28 FPS | ~24 FPS | ~-14% |
+| GX-worker load | ~26% | 41–43% | +15–17 pp |
+| Process CPU, 15 s | 2,033 jiffies | 2,231 jiffies | +9.7% |
+
+Decision: reject M2-A. Per-element validation consumed more CPU than vertex decoding saved.
+
+#### M2-B validation and pending measurement
+
+| Check | Result |
+| --- | --- |
+| Repeated unchanged draw | Cache hit |
+| Direct FIFO payload mutation | Cache miss |
+| Indexed-array dirty mark | Cache miss |
+| Indexed range outside tracked MEM1 | Safe bypass |
+| Focused `gxcore_tests` | Pass |
+| Full BlueWake container build | Pending |
+| Same-AppImage Deck cache-off/cache-on A/B | Pending |
+
+Retain M2-B only if matched Deck runs improve game rate or CPU/GX-worker cost without visual or lifecycle regressions.
 
 ### M3 — Generation-keyed derived state
 

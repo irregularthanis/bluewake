@@ -32,7 +32,12 @@ Parallel with M1 and M3; owns geometry keys, cache storage and invalidation.
 - [ ] M2-T03: Test mutable lists/arrays, unknown addresses, eviction and shutdown.
 - [ ] M2-T04: Run the matched Deck qualification and retain only a measurable improvement.
 
-Candidate status: [`RecompCore@857ca0d`](https://github.com/irregularthanis/RecompCore/commit/857ca0dc720b028e66328d5feef207beb691af3f) is rejected because its per-element content scan increased GX-worker load and reduced worst-view speed despite a 91.4% eligible hit rate. [`RecompCore@739de26`](https://github.com/irregularthanis/RecompCore/commit/739de26186b636ad251c4062ad20db0f916fda35) replaces that scan with one dirty-epoch lookup per distinct indexed array and is ready for the same-build Deck qualification. No M2 task is complete until that evidence exists.
+| Candidate | Validation | Deck result | Decision |
+| --- | --- | --- | --- |
+| [M2-A `857ca0d`](https://github.com/irregularthanis/RecompCore/commit/857ca0dc720b028e66328d5feef207beb691af3f) | Payload and referenced array bytes hashed; focused contract passed | 91.4% eligible hit rate; ~28 → ~24 FPS; GX worker ~26% → 41–43%; CPU +9.7% | Rejected |
+| [M2-B `739de26`](https://github.com/irregularthanis/RecompCore/commit/739de26186b636ad251c4062ad20db0f916fda35) | FIFO payload hash + one dirty epoch per distinct indexed array; focused contract passed | Pending same-AppImage cache-off/cache-on A/B | Active |
+
+No M2 task is complete until M2-B passes the matched Deck qualification.
 
 ### M3: Generation-keyed derived state (depends: M0)
 
