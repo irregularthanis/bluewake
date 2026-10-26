@@ -4,7 +4,7 @@ Status: M0 complete; M2-B shows a repeatable GX-worker reduction and remains und
 
 Baseline: [`chrissotraidis/bluewake@b1bf26a`](https://github.com/chrissotraidis/bluewake/commit/b1bf26a0b8a5c1c6e86b9351d658806ff9eb3c1c)
 
-Current integration: this PR pins [`irregularthanis/RecompCore@739de26`](https://github.com/irregularthanis/RecompCore/commit/739de26186b636ad251c4062ad20db0f916fda35), which keeps the M0 diagnostic and replaces the rejected M2 validation scan with a default-off dirty-epoch candidate on BlueWake's current `1446450` runtime base. Both the dependency inventory and the builders' authoritative profile use this revision. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
+Current integration: this PR pins [`irregularthanis/RecompCore@3586581`](https://github.com/irregularthanis/RecompCore/commit/3586581a76cd4c7720357271a4c49449c3eee08b), which keeps M2-B behavior and adds default-off M2-B0 cost counters on BlueWake's current `1446450` runtime base. Both the dependency inventory and the builders' authoritative profile use this revision. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
 
 [Product brief](PRD.md) · [Tracker](PROGRESS.md)
 
@@ -45,7 +45,7 @@ Symbol identities come from the upstream [GZLE01 symbol map](https://github.com/
 | Implemented | RecompCore Aurora plan observer | When `DOL_GXCORE_DL_ATTRIBUTION` is set, rank up to 12 display-list addresses per present and report plan/vertex totals | M0 |
 | Proposed | RecompCore `GxCoreSink` / draw submission | Implement #454's same-state, same-transform plan concatenation behind a default-off switch | M1 |
 | Active experiment | RecompCore `GxCoreState::build_draw_plan_into` | Reuse decoded vertices with raw FIFO identity and dirty-epoch invalidation | M2 |
-| Proposed diagnostic | RecompCore GXCore cache counters/profile labels | Attribute hashing, epoch, lookup, collision and copy cost without changing behavior | M2-B0 |
+| Implemented diagnostic | RecompCore GXCore cache counters/profile labels | Attribute hashing, epoch, lookup, collision and copy volume without changing cache behavior | M2-B0 |
 | Conditional candidates | RecompCore GXCore/frontend | Optimize only the measured dominant cost: payload identity, epoch metadata, vertex ownership or cache layout | M2-B1–B4 |
 | Proposed | RecompCore frontend/GX state | Carry XF, channel, light, texture and array generation IDs so hot cache checks compare compact identities | M3 |
 | Proposed | Aurora GXCore submission | Evaluate matrix-varying instancing only after M1–M3 results establish remaining cost | M4 |
@@ -183,7 +183,7 @@ flowchart LR
 | B5 | Complete mutation, collision, eviction, reset and shutdown coverage against cached/uncached output | Contract tests and available sanitizers pass |
 | B6 | Compare A: cache off, B: M2-B, C: optimized M2-B using A/A then rotated A/B/C rounds | Improvement exceeds noise without checkpoint, scene or visual regression |
 
-Proposed diagnostic additions—not an implemented API:
+Implemented diagnostic additions in [`RecompCore@3586581`](https://github.com/irregularthanis/RecompCore/commit/3586581a76cd4c7720357271a4c49449c3eee08b):
 
 ```cpp
 // Extend the existing default-off geometry-cache diagnostics.
@@ -196,7 +196,7 @@ geometry_cache_epoch_queries;
 geometry_cache_indexed_arrays_examined;
 ```
 
-B0 should prefer sampled profiles. Diagnostic counters or timers must remain opt-in; per-draw clock reads are unacceptable in qualification builds unless their overhead is separately measured.
+B0 should prefer sampled profiles. These detailed counters update only with `DOL_GXCORE_OPT_LOG=1`; ordinary M2-B cache-on runs retain the original activation counters. Per-draw clock reads are not part of this diagnostic.
 
 Candidate isolation matters: B1–B4 are alternatives selected by B0, not a bundle. B3 is the broadest because `DrawPlan::vertices` is consumed by frame interpolation and staging upload; it must remain separate from key/lookup experiments.
 
