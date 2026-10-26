@@ -1,10 +1,10 @@
 # TECH_PLAN — Repeated GX display-list optimization
 
-Status: M0 attribution complete; first M2 candidate measured and rejected
+Status: M0 attribution complete; second M2 candidate ready for Deck measurement
 
 Baseline: [`chrissotraidis/bluewake@b1bf26a`](https://github.com/chrissotraidis/bluewake/commit/b1bf26a0b8a5c1c6e86b9351d658806ff9eb3c1c)
 
-Current integration: this PR pins [`irregularthanis/RecompCore@857ca0d`](https://github.com/irregularthanis/RecompCore/commit/857ca0dc720b028e66328d5feef207beb691af3f), which keeps the M0 attribution diagnostic and adds the first default-off M2 decoded-geometry candidate on BlueWake's current `1446450` runtime base. Both the dependency inventory and the builders' authoritative profile use this revision. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
+Current integration: this PR pins [`irregularthanis/RecompCore@739de26`](https://github.com/irregularthanis/RecompCore/commit/739de26186b636ad251c4062ad20db0f916fda35), which keeps the M0 diagnostic and replaces the rejected M2 validation scan with a default-off dirty-epoch candidate on BlueWake's current `1446450` runtime base. Both the dependency inventory and the builders' authoritative profile use this revision. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
 
 [Product brief](PRD.md) · [Tracker](PROGRESS.md)
 
@@ -96,9 +96,9 @@ An address is never sufficient: guest code may rewrite a list or an indexed arra
 
 The first M2 candidate uses `DOL_GXCORE_GEOMETRY_CACHE=1`. It stores at most 256 decoded-vertex entries in thread-local direct-mapped storage. A key contains the nonzero display-list address, VCD/VAT layout, current fallback matrix, raw FIFO payload and every indexed guest-array element actually read. Guest payload or array mutations therefore miss without reusing stale geometry.
 
-Current status: decoded-vertex reuse, bounded storage, activation counters and payload/array mutation tests exist in [`RecompCore@857ca0d`](https://github.com/irregularthanis/RecompCore/commit/857ca0dc720b028e66328d5feef207beb691af3f). The Deck session recorded 1,805,242 hits and 170,381 misses among eligible draws (91.4% hit rate), but a near-matched 15-second worst-view comparison regressed from about 28 to 24 game FPS, raised GX-worker load from about 26% to 41–43%, and consumed 2,231 versus 2,033 process CPU jiffies. The content hashing needed to prove array equality costs more than the saved decode, so this implementation is rejected.
+The first implementation in [`RecompCore@857ca0d`](https://github.com/irregularthanis/RecompCore/commit/857ca0dc720b028e66328d5feef207beb691af3f) recorded 1,805,242 hits and 170,381 misses among eligible draws (91.4% hit rate), but a near-matched 15-second worst-view comparison regressed from about 28 to 24 game FPS, raised GX-worker load from about 26% to 41–43%, and consumed 2,231 versus 2,033 process CPU jiffies. Its per-element content scan cost more than the saved decode, so that validation design is rejected.
 
-Further M2 work must avoid scanning the geometry to validate it. A generation/dirty-epoch key may be reconsidered under M3, but this content-hash cache must not be enabled or submitted upstream.
+The second candidate in [`RecompCore@739de26`](https://github.com/irregularthanis/RecompCore/commit/739de26186b636ad251c4062ad20db0f916fda35) keeps the raw FIFO payload in the key but validates each distinct indexed-array span with the existing guest-memory dirty epoch. It bypasses when an epoch is unavailable. Focused tests cover repeat hits, direct-payload misses, dirty-array misses and unknown-range bypasses. It remains default-off and requires the same-build Deck qualification before retention.
 
 ### M3 — Generation-keyed derived state
 
