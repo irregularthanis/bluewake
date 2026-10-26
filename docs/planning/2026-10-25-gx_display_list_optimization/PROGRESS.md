@@ -1,6 +1,6 @@
 # PROGRESS — Repeated GX display-list optimization
 
-Status: M0 complete; second M2 candidate ready for Deck measurement
+Status: M0 complete; M2-B preliminary Deck A/B positive, full qualification pending
 
 [Product brief](PRD.md) · [Technical plan](TECH_PLAN.md)
 
@@ -27,17 +27,17 @@ Parallel with M2 and M3; owns plan concatenation and its exactness tests.
 
 Parallel with M1 and M3; owns geometry keys, cache storage and invalidation.
 
-- [ ] M2-T01: Freeze the display-list/layout/array-generation key and bounded eviction contract.
-- [ ] M2-T02: Reuse decoded vertices and topology with counters and an uncached fallback.
+- [x] M2-T01: Freeze the FIFO/layout/dirty-epoch key and bounded direct-mapped storage contract.
+- [x] M2-T02: Reuse decoded vertices with counters and an uncached fallback.
 - [ ] M2-T03: Test mutable lists/arrays, unknown addresses, eviction and shutdown.
 - [ ] M2-T04: Run the matched Deck qualification and retain only a measurable improvement.
 
 | Candidate | Validation | Deck result | Decision |
 | --- | --- | --- | --- |
 | [M2-A `857ca0d`](https://github.com/irregularthanis/RecompCore/commit/857ca0dc720b028e66328d5feef207beb691af3f) | Payload and referenced array bytes hashed; focused contract passed | 91.4% eligible hit rate; ~28 → ~24 FPS; GX worker ~26% → 41–43%; CPU +9.7% | Rejected |
-| [M2-B `739de26`](https://github.com/irregularthanis/RecompCore/commit/739de26186b636ad251c4062ad20db0f916fda35) | FIFO payload hash + one dirty epoch per distinct indexed array; focused contract passed | Pending same-AppImage cache-off/cache-on A/B | Active |
+| [M2-B `739de26`](https://github.com/irregularthanis/RecompCore/commit/739de26186b636ad251c4062ad20db0f916fda35) | FIFO payload hash + one dirty epoch per distinct indexed array; focused contract passed | 91.5% eligible hit rate; repeated worst-view GX worker -5.1%, process CPU -1.1%; no visual issue; subjectively more stable | Continue qualification |
 
-No M2 task is complete until M2-B passes the matched Deck qualification.
+M2-T03 and M2-T04 remain open: FPS was not captured, and eviction/shutdown plus the full interleaved methodology still require validation.
 
 ### M3: Generation-keyed derived state (depends: M0)
 
@@ -69,6 +69,7 @@ Parallel with M1 and M2; owns state generations and cache-hit comparison.
 | M0-T04 | Private logs: stable `9ed7955d...f692`, slow `6efea0f9...fb70`, worst `f8b2bdd6...a83cd`; [GZLE01 symbols](https://github.com/zeldaret/tww/blob/main/config/GZLE01/symbols.txt) | Matched 15-second fixed-camera captures; aggregate top-12 identities per present and map main-DOL addresses to symbols | Outset state; 449/388/353 frames; pacing disabled | Plans/frame 500.63 → 983.61 → 1,776.96. Grass rises 115 → 840 from slow to worst, explaining 91% of that plan delta. Prioritize M2 geometry reuse for repeated grass lists. |
 | M2 candidate | [RecompCore `857ca0d`](https://github.com/irregularthanis/RecompCore/commit/857ca0dc720b028e66328d5feef207beb691af3f) | Build and run focused `gxcore_tests`; inspect opt-in counters | GCC 16 isolated GXRuntime build; `DOL_GXCORE_GEOMETRY_CACHE=1` test process | PASS: repeat hit, direct payload mutation miss, indexed-array mutation miss and unknown-address bypass. Full frontend test build is independently blocked by the pre-existing unqualified `RenderPacket` name in `frontend_replay_test.cpp`. |
 | M2 Deck decision | Private candidate log `519c1b5c...d15ac1`; control `b4726b7e...c5c28` | Same AppImage, cache on/off, near-matched worst grass-heavy angle, 15-second process sample and runtime FPS/GX markers | Steam Deck LCD, Game Mode, pacing disabled | REJECT: 91.4% eligible hit rate, but cache-on was about 24 FPS versus 28 control; GX worker 41–43% versus 26%; CPU 2,231 versus 2,033 jiffies. |
-| M2 dirty-epoch candidate | [RecompCore `739de26`](https://github.com/irregularthanis/RecompCore/commit/739de26186b636ad251c4062ad20db0f916fda35) | Build `gxcore_tests`; run focused CTest contract | GCC 16 isolated GXRuntime build | PASS: repeat hit, direct-payload miss, dirty-array miss, and untracked-range bypass. Deck measurement pending. |
+| M2-T01 | [RecompCore `739de26`](https://github.com/irregularthanis/RecompCore/commit/739de26186b636ad251c4062ad20db0f916fda35) | Inspect and test the implemented cache key and fallback | 256-entry thread-local cache; default-off | FIFO payload and layout identify direct data; distinct indexed arrays use tracked dirty epochs; unavailable identity bypasses. |
+| M2-T02 | BlueWake [`c0eea43`](https://github.com/irregularthanis/bluewake/commit/c0eea43686bfd30085986ef6a0e09937fa3b53e4), AppImage `ebbc9a47...c79e` | Focused CTest; same-AppImage cache-off/cache-on 15-second fixed-view samples | Steam Deck LCD, Game Mode, pacing disabled | PASS: 91.5% eligible hit rate; repeated worst-view GX-worker CPU -5.1% and process CPU -1.1%. Stable view process CPU +3.2%; slow -1.4%. No visual issue; player reported greater stability. |
 
 Private logs, saves, translated modules and AppImages are not published.

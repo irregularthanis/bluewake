@@ -1,6 +1,6 @@
 # TECH_PLAN — Repeated GX display-list optimization
 
-Status: M0 attribution complete; second M2 candidate ready for Deck measurement
+Status: M0 complete; M2-B shows a repeatable GX-worker reduction and remains under qualification
 
 Baseline: [`chrissotraidis/bluewake@b1bf26a`](https://github.com/chrissotraidis/bluewake/commit/b1bf26a0b8a5c1c6e86b9351d658806ff9eb3c1c)
 
@@ -42,7 +42,7 @@ Symbol identities come from the upstream [GZLE01 symbol map](https://github.com/
 | Implemented | RecompCore `RetailGxFrontend::write_display_list` / packet metadata | Carry the active display-list address through nested parsing, queued draws and consumed plans; preserve address `0` for unattributed or cross-list fused work | M0 |
 | Implemented | RecompCore Aurora plan observer | When `DOL_GXCORE_DL_ATTRIBUTION` is set, rank up to 12 display-list addresses per present and report plan/vertex totals | M0 |
 | Proposed | RecompCore `GxCoreSink` / draw submission | Implement #454's same-state, same-transform plan concatenation behind a default-off switch | M1 |
-| Rejected experiment | RecompCore `GxCoreState::build_draw_plan_into` | Content-hash decoded-vertex cache activated frequently but increased GX/CPU cost | M2 |
+| Active experiment | RecompCore `GxCoreState::build_draw_plan_into` | Reuse decoded vertices with raw FIFO identity and dirty-epoch invalidation | M2 |
 | Proposed | RecompCore frontend/GX state | Carry XF, channel, light, texture and array generation IDs so hot cache checks compare compact identities | M3 |
 | Proposed | Aurora GXCore submission | Evaluate matrix-varying instancing only after M1–M3 results establish remaining cost | M4 |
 | Modify after runtime acceptance | BlueWake dependency lock, patch export and performance documentation | Pin the companion runtime revision and record qualification | M5 |
@@ -93,7 +93,7 @@ flowchart LR
 | Unknown address/epoch | Bypass | Bypass |
 | Storage | 256 thread-local direct-mapped entries | Same |
 | Default | Off | Off |
-| Status | Rejected on Deck | Focused tests pass; Deck A/B pending |
+| Status | Rejected on Deck | Focused tests pass; preliminary Deck A/B positive |
 
 The raw FIFO payload covers direct attributes and array indices. M2-B obtains indexed-array epochs from [`dol_guest_memory_dirty_epoch`](https://github.com/irregularthanis/RecompCore/blob/739de26186b636ad251c4062ad20db0f916fda35/GXRuntime/src/guest_memory_dirty.c); an unavailable epoch selects the uncached path.
 
@@ -110,7 +110,7 @@ The raw FIFO payload covers direct attributes and array indices. M2-B obtains in
 
 Decision: reject M2-A. Per-element validation consumed more CPU than vertex decoding saved.
 
-#### M2-B validation and pending measurement
+#### M2-B validation
 
 | Check | Result |
 | --- | --- |
@@ -119,10 +119,28 @@ Decision: reject M2-A. Per-element validation consumed more CPU than vertex deco
 | Indexed-array dirty mark | Cache miss |
 | Indexed range outside tracked MEM1 | Safe bypass |
 | Focused `gxcore_tests` | Pass |
-| Full BlueWake container build | Pending |
-| Same-AppImage Deck cache-off/cache-on A/B | Pending |
+| Full BlueWake container build and AppImage packaging | Pass |
+| Same-AppImage Deck cache-off/cache-on fixed-view A/B | Pass; GX-worker reduction repeats |
+| Player-facing island tour | No visual issue reported; subjectively more stable |
 
-Retain M2-B only if matched Deck runs improve game rate or CPU/GX-worker cost without visual or lifecycle regressions.
+Build identity: BlueWake [`c0eea43`](https://github.com/irregularthanis/bluewake/commit/c0eea43686bfd30085986ef6a0e09937fa3b53e4), RecompCore [`739de26`](https://github.com/irregularthanis/RecompCore/commit/739de26186b636ad251c4062ad20db0f916fda35), AppImage SHA-256 `ebbc9a47...c79e`.
+
+| Fixed view, 15 s | Cache off process | Cache on process | Delta | Cache off GX worker | Cache on GX worker | Delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Stable | 1,907 | 1,968 | +3.2% | 386 | 376 | -2.6% |
+| Slow | 2,093 | 2,063 | -1.4% | 495 | 463 | -6.5% |
+| Worst, repeated mean | 2,278 | 2,253 | -1.1% | 668.5 | 634.3 | -5.1% |
+
+| Cache activation | Value |
+| --- | ---: |
+| Hits | 5,909,739 |
+| Misses | 548,103 |
+| Eligible hit rate | 91.5% |
+| Bypasses | 2,101,012 |
+
+The worst-view control spread was 4 process jiffies and 9 GX-worker jiffies; M2-B reduced the repeated mean by 25 and 34.2 respectively. FPS was not captured, so this establishes a CPU-path improvement rather than a frame-rate claim.
+
+Next gate: complete eviction/shutdown coverage and the full interleaved benchmark methodology before proposing the runtime change upstream.
 
 ### M3 — Generation-keyed derived state
 
