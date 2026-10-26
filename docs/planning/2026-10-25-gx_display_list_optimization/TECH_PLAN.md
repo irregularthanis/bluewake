@@ -20,20 +20,20 @@ Current integration: this PR pins [`irregularthanis/RecompCore@4b5f0ae`](https:/
 
 ### M0 attribution findings
 
-Matched 15-second Game Mode captures used BlueWake `24291d4`, RecompCore `4b5f0ae`, AppImage SHA-256 `f84ff19b...948ff`, Smooth Motion pacing disabled, and the same Outset state. The stable view covered 449 frames; the slow view covered 388.
+Matched 15-second Game Mode captures used BlueWake `24291d4`, RecompCore `4b5f0ae`, AppImage SHA-256 `f84ff19b...948ff`, Smooth Motion pacing disabled, and the same Outset state. The stable, slow and worst views covered 449, 388 and 353 frames respectively.
 
-| Display list | Game owner | Stable plans/frame | Slow plans/frame | Observed delta |
+| Display list | Game owner | Stable | Slow | Worst plans/frame |
 | --- | --- | ---: | ---: | ---: |
-| `80379980` | `l_Oba_kusa_aDL` — grass | 7.00 | 115.00 | +108.00 |
-| `80382DC0` | `l_OhanaDL` — flowers | Below top 12 | 43.00 | Up to +43.00 |
-| `8037B020` | `g_dTree_Oba_kage_32DL` — tree shadow | Below top 12 | 41.00 | Up to +41.00 |
-| `8037AC60` | `l_Oba_swood_a_mikiDL` — tree trunk | Below top 12 | 38.00 | Up to +38.00 |
-| `8037AAE0` | `l_Oba_swood_a_hapaDL` — tree foliage | Below top 12 | 38.00 | Up to +38.00 |
-| `80383A40` | `l_Ohana_highDL` — high-detail flowers | Below top 12 | 22.00 | Up to +22.00 |
+| `80379980` | `l_Oba_kusa_aDL` — grass | 7.00 | 115.00 | 840.00 |
+| `80382DC0` | `l_OhanaDL` — flowers | Below top 12 | 43.00 | 68.00 |
+| `8037B020` | `g_dTree_Oba_kage_32DL` — tree shadow | Below top 12 | 41.00 | 18.00 |
+| `8037AC60` | `l_Oba_swood_a_mikiDL` — tree trunk | Below top 12 | 38.00 | 10.00 |
+| `8037AAE0` | `l_Oba_swood_a_hapaDL` — tree foliage | Below top 12 | 38.00 | 10.00 |
+| `80383A40` | `l_Ohana_highDL` — high-detail flowers | Below top 12 | 22.00 | Below top 12 |
 
-Overall plans rose from 500.63 to 983.61 per frame (+482.98). The six identified foliage lists contribute up to 290 slow-minus-recorded-stable top-12 plans/frame; addresses absent from the stable top 12 may have a small unrecorded stable count, so those individual deltas are upper bounds. Address `0` (cross-list fusion/unknown attribution) rose by 40.73 plans/frame, and relocated address `8107F480` contributed 35 slow-view plans/frame but is not yet symbolized. This establishes foliage display-list replay as the dominant named candidate without claiming it explains the entire delta.
+Overall plans rose from 500.63 stable to 983.61 slow and 1,776.96 worst. Grass alone rose from 115 to 840 plans/frame between slow and worst: +725 of the +793 total delta (91%). Against stable, grass adds 833 of the +1,276 total. The third capture therefore narrows the first optimization target from general foliage to repeated grass geometry. Address `0` still rose from 313.93 stable to 372.88 worst, while relocated address `8107F480` remained 35 plans/frame in both slow views.
 
-Symbol identities come from the upstream [GZLE01 symbol map](https://github.com/zeldaret/tww/blob/main/config/GZLE01/symbols.txt). Raw logs remain private; stable SHA-256 is `9ed7955d...f692` and slow SHA-256 is `6efea0f9...fb70`.
+Symbol identities come from the upstream [GZLE01 symbol map](https://github.com/zeldaret/tww/blob/main/config/GZLE01/symbols.txt). Raw logs remain private; stable SHA-256 is `9ed7955d...f692`, slow is `6efea0f9...fb70`, and worst is `f8b2bdd6...a83cd`.
 
 ## Planned changes
 
