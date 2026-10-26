@@ -39,7 +39,7 @@ PROFILE_HOST_PGO=scripts/builder/profiles/bluewake/host.profdata
 # Dawn source/package compatibility: patches/recompcore/0184-0185 (RecompCore #44).
 # Fork-only GX investigation: per-present display-list plan attribution on 1446450.
 RECOMPCORE_URL=https://github.com/irregularthanis/RecompCore.git
-RECOMPCORE_SHA=2a4a985615029acedf1de76e17c6126ace1d66ce
+RECOMPCORE_SHA=b8f9e2f3ffdf0e6b87dc60b02bdf56b9f6a4728f
 DOLRECOMP_SHA=b8b534591cba8ca7cd43943a655ee6e2591cf5de
 DAWN_URL=https://github.com/encounter/dawn/releases/download/v20260618.032059/dawn-ios-arm64.tar.gz
 DAWN_SHA256=ada0bafc173152d80eba7c3b2f9609a71185d5809cbd5dd3251b91a0803a7ae2

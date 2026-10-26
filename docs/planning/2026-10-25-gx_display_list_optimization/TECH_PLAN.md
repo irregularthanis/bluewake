@@ -4,7 +4,7 @@ Status: M0 complete; narrow M2-B3 rejected; fixed-capacity M2-B4 prepared for qu
 
 Baseline: [`chrissotraidis/bluewake@b1bf26a`](https://github.com/chrissotraidis/bluewake/commit/b1bf26a0b8a5c1c6e86b9351d658806ff9eb3c1c)
 
-Current integration: this PR pins [`irregularthanis/RecompCore@2a4a985`](https://github.com/irregularthanis/RecompCore/commit/2a4a985615029acedf1de76e17c6126ace1d66ce), which keeps M2-B behavior, adds default-off M2-B0 cost counters, and removes a measured redundant hit-path vertex initialization on BlueWake's current `1446450` runtime base. Both the dependency inventory and the builders' authoritative profile use this revision. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
+Current integration: this PR pins [`irregularthanis/RecompCore@b8f9e2f`](https://github.com/irregularthanis/RecompCore/commit/b8f9e2f3ffdf0e6b87dc60b02bdf56b9f6a4728f), which keeps M2-B dirty-epoch validation and diagnostics, restores the original vertex initialization after B3's rejection, and tests B4's fixed-capacity two-way layout on BlueWake's current `1446450` runtime base. Both the dependency inventory and the builder's authoritative profile use this revision. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
 
 [Product brief](PRD.md) · [Tracker](PROGRESS.md)
 
