@@ -1,6 +1,6 @@
 # PROGRESS — Repeated GX display-list optimization
 
-Status: M0 diagnostic wired into the builder; corrected build pending
+Status: M0 attribution complete; implementation candidates unblocked
 
 [Product brief](PRD.md) · [Technical plan](TECH_PLAN.md)
 
@@ -13,7 +13,7 @@ Architecture: [GX command path](../../architecture/Graphics.md#gx-command-path).
 - [x] M0-T01: Measure matched stable and slow Outset camera angles with plan counters.
 - [x] M0-T02: Map the hot path to RecompCore GXCore and candidate Wind Waker foliage loops.
 - [x] M0-T03: Add a per-frame display-list identity histogram and reconcile it with plan totals.
-- [ ] M0-T04: Rank display-list owners by contribution to the stable/slow delta.
+- [x] M0-T04: Rank display-list owners by contribution to the stable/slow delta.
 
 ### M1: Same-transform fusion (depends: M0)
 
@@ -58,6 +58,7 @@ Parallel with M1 and M2; owns state generations and cache-hit comparison.
 | --- | --- | --- | --- | --- |
 | M0-T01 | Local stable/slow counter captures; tested BlueWake `b721e785fbfb`; AppImage SHA-256 `406fcf53...cc575` | 15-second `[cutscene]` plan-counter captures at two fixed camera angles | Steam Deck LCD, Game Mode, Outset, Smooth Motion disabled | Stable 445 frames at 629.13 plans/frame; slow 399 at 1,076.34; +71.1%; no skipped/cull/decode failures |
 | M0-T02 | BlueWake main `b1bf26a`; RecompCore GXCore/frontend sources; zeldaret/tww foliage sources | Source inspection plus existing flat profiles | Current main docs and tested candidate source | Hot path mapped; foliage loops are candidates, not yet attributed owners |
-| M0-T03 | [RecompCore `4b5f0ae`](https://github.com/irregularthanis/RecompCore/commit/4b5f0ae989fcbd8f544984fdc79679acd25e87c3); BlueWake pin in [fork PR #2](https://github.com/irregularthanis/bluewake/pull/2) | Replay the diagnostic on current runtime base `1446450`; pin both `config/dependencies.lock.json` and `scripts/builder/profiles/bluewake.sh` | Fork-only integration | Diagnostic source is integrated. The earlier `gx-fix-c7b7ced2d88c` AppImage used builder-profile pin `47a5229` and is rejected as evidence; corrected build and M0-T04 capture remain pending. |
+| M0-T03 | [RecompCore `4b5f0ae`](https://github.com/irregularthanis/RecompCore/commit/4b5f0ae989fcbd8f544984fdc79679acd25e87c3); BlueWake `24291d4`; AppImage SHA-256 `f84ff19b...948ff` | Standard Clang 18 container build; verify compiled diagnostic strings and runtime activation | Linux build plus Steam Deck LCD Game Mode | Build, AppImage packaging and ABI audit passed; live process emitted per-present attribution records. |
+| M0-T04 | Private stable log `9ed7955d...f692`; private slow log `6efea0f9...fb70`; [GZLE01 symbols](https://github.com/zeldaret/tww/blob/main/config/GZLE01/symbols.txt) | Matched 15-second fixed-camera captures; aggregate top-12 identities per present and map main-DOL addresses to symbols | Outset state; stable 449 frames; slow 388; pacing disabled | Plans/frame 500.63 → 983.61. Grass adds 108; six named foliage lists total up to 290 slow-minus-recorded-stable top-12 plans/frame. M1–M3 are unblocked. |
 
 Private logs, saves, translated modules and AppImages are not published.
