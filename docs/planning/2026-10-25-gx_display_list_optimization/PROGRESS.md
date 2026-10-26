@@ -1,6 +1,6 @@
 # PROGRESS — Repeated GX display-list optimization
 
-Status: Planned; baseline investigation recorded
+Status: M0 diagnostic built; attribution capture pending
 
 [Product brief](PRD.md) · [Technical plan](TECH_PLAN.md)
 
@@ -12,7 +12,7 @@ Architecture: [GX command path](../../architecture/Graphics.md#gx-command-path).
 
 - [x] M0-T01: Measure matched stable and slow Outset camera angles with plan counters.
 - [x] M0-T02: Map the hot path to RecompCore GXCore and candidate Wind Waker foliage loops.
-- [ ] M0-T03: Add a per-frame display-list identity histogram and reconcile it with plan totals.
+- [x] M0-T03: Add a per-frame display-list identity histogram and reconcile it with plan totals.
 - [ ] M0-T04: Rank display-list owners by contribution to the stable/slow delta.
 
 ### M1: Same-transform fusion (depends: M0)
@@ -58,5 +58,6 @@ Parallel with M1 and M2; owns state generations and cache-hit comparison.
 | --- | --- | --- | --- | --- |
 | M0-T01 | Local stable/slow counter captures; tested BlueWake `b721e785fbfb`; AppImage SHA-256 `406fcf53...cc575` | 15-second `[cutscene]` plan-counter captures at two fixed camera angles | Steam Deck LCD, Game Mode, Outset, Smooth Motion disabled | Stable 445 frames at 629.13 plans/frame; slow 399 at 1,076.34; +71.1%; no skipped/cull/decode failures |
 | M0-T02 | BlueWake main `b1bf26a`; RecompCore GXCore/frontend sources; zeldaret/tww foliage sources | Source inspection plus existing flat profiles | Current main docs and tested candidate source | Hot path mapped; foliage loops are candidates, not yet attributed owners |
+| M0-T03 | [RecompCore `0fe472a`](https://github.com/irregularthanis/RecompCore/commit/0fe472a73232e5bbfc53698213915b3ac18cccd0); BlueWake pin in [fork PR #2](https://github.com/irregularthanis/bluewake/pull/2); local build `gx-fix-c7b7ced2d88c` | Build the pinned runtime through the standard containerized AppImage flow; inspect the diagnostic and focused source tests | Clang 18; x86-64-v3; all normal optimization switches enabled | Build and AppImage packaging passed. The diagnostic carries display-list identity into plans and reports per-present plan/vertex rankings when enabled. Runtime attribution capture remains M0-T04. |
 
 Private logs, saves, translated modules and AppImages are not published.

@@ -6,7 +6,7 @@ Repository baseline: `chrissotraidis/bluewake@b1bf26a0b8a5c1c6e86b9351d658806ff9
 
 Measured build: `bluewake@b721e785fbfbb4f3351d4775d3ba767cae7de88b`, AppImage SHA-256 `406fcf53ae302b0be2ad95739650b5e371090777a7d7da3759202cdde19cc575`
 
-Scope: investigate and reduce repeated CPU-side GX plan work; excluded: visual LOD/culling changes, Smooth Motion policy, and implementation in this planning PR
+Scope: investigate and reduce repeated CPU-side GX plan work; excluded: visual LOD/culling changes and Smooth Motion policy. This fork PR now carries the measurement-only M0 diagnostic; performance changes remain gated on its evidence.
 
 ## Problem
 
@@ -81,4 +81,6 @@ The first implementation should favor reuse over altered visibility. A cache may
 - [Steam Deck profiling procedure](../../PROFILING.md)
 - [Outset draw census](../../status/OUTSET_DRAWS_2026-10-22.md)
 - [Steam Deck performance report #215](https://github.com/chrissotraidis/bluewake/issues/215)
+- [Fork integration PR #2](https://github.com/irregularthanis/bluewake/pull/2)
+- [M0 RecompCore diagnostic](https://github.com/irregularthanis/RecompCore/commit/0fe472a73232e5bbfc53698213915b3ac18cccd0)
 - [Wind Waker grass renderer](https://github.com/zeldaret/tww/blob/main/src/d/d_grass.cpp), [tree renderer](https://github.com/zeldaret/tww/blob/main/src/d/d_tree.cpp), [wood renderer](https://github.com/zeldaret/tww/blob/main/src/d/d_wood.cpp), and [flower renderer](https://github.com/zeldaret/tww/blob/main/src/d/d_flower.cpp)

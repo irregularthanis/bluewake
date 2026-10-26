@@ -1,8 +1,10 @@
 # TECH_PLAN — Repeated GX display-list optimization
 
-Status: Planning only
+Status: M0 diagnostic implemented; attribution capture pending
 
-Source: `chrissotraidis/bluewake@b1bf26a0b8a5c1c6e86b9351d658806ff9eb3c1c`
+Baseline: [`chrissotraidis/bluewake@b1bf26a`](https://github.com/chrissotraidis/bluewake/commit/b1bf26a0b8a5c1c6e86b9351d658806ff9eb3c1c)
+
+Current integration: this PR pins [`irregularthanis/RecompCore@0fe472a`](https://github.com/irregularthanis/RecompCore/commit/0fe472a73232e5bbfc53698213915b3ac18cccd0), the fork-only M0 attribution diagnostic. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
 
 [Product brief](PRD.md) · [Tracker](PROGRESS.md)
 
@@ -14,13 +16,14 @@ Source: `chrissotraidis/bluewake@b1bf26a0b8a5c1c6e86b9351d658806ff9eb3c1c`
 - Existing BlueWake patches already reuse plan/vector capacity, avoid whole-state copies, cache derived pipeline state and fuse compatible adjacent primitives. Proposed work must measure incremental benefit beyond those optimizations.
 - The decompiled foliage loops load a per-instance matrix and replay shared display lists. This is a source-grounded candidate mechanism, not yet attribution for the measured angle.
 - Merged [#454](https://github.com/chrissotraidis/bluewake/pull/454) reports 34–59% same-transform plan-fusion potential across four rendered scenes, before downstream batching.
+- The M0 diagnostic now carries the originating guest display-list address through frontend packets and draw plans. With `DOL_GXCORE_DL_ATTRIBUTION=1`, each present reports the top 12 addresses by plans plus vertices and reconciled frame totals. Plans fused across different lists use address `0` as an explicit unknown bucket.
 
 ## Planned changes
 
 | Status | File / symbol | Practical change | Milestone |
 | --- | --- | --- | --- |
-| Modify | RecompCore `RetailGxFrontend::write_display_list` / packet metadata | Count display-list address, size, calls, emitted plans and vertices per frame; preserve an unknown-address bucket | M0 |
-| Modify | RecompCore `GxCoreSink` plan observer | Associate observed plans with their originating display list without changing draw semantics | M0 |
+| Implemented | RecompCore `RetailGxFrontend::write_display_list` / packet metadata | Carry the active display-list address through nested parsing, queued draws and consumed plans; preserve address `0` for unattributed or cross-list fused work | M0 |
+| Implemented | RecompCore Aurora plan observer | When `DOL_GXCORE_DL_ATTRIBUTION` is set, rank up to 12 display-list addresses per present and report plan/vertex totals | M0 |
 | Proposed | RecompCore `GxCoreSink` / draw submission | Implement #454's same-state, same-transform plan concatenation behind a default-off switch | M1 |
 | Proposed | RecompCore `GxCoreState::build_draw_plan_into` | Reuse decoded vertices and topology for immutable repeated display-list geometry | M2 |
 | Proposed | RecompCore frontend/GX state | Carry XF, channel, light, texture and array generation IDs so hot cache checks compare compact identities | M3 |
@@ -94,7 +97,7 @@ Concurrency limits: M1–M3 may be developed separately after M0 freezes packet 
 - Start with attribution. The slow view is draw-heavy, but “foliage caused it” is not yet proven.
 - Prefer M1 or M2 before instancing: both retain the game's visibility and draw decisions.
 - Measure renderer draws separately from GX plans because existing downstream batching breaks a one-to-one assumption.
-- The exact companion RecompCore base must be refreshed when implementation starts; this plan records BlueWake main and the tested candidate separately.
+- The diagnostic is intentionally fork-only while M0 evidence is collected. Accepted runtime work will need a companion upstream RecompCore PR before BlueWake can replace the temporary fork pin.
 
 ## References
 
@@ -103,3 +106,5 @@ Concurrency limits: M1–M3 may be developed separately after M0 freezes packet 
 - [Steam Deck procedure](../../PROFILING.md)
 - [Merged draw census and fusion constraints](../../status/OUTSET_DRAWS_2026-10-22.md)
 - [Issue #215](https://github.com/chrissotraidis/bluewake/issues/215)
+- [Fork integration PR #2](https://github.com/irregularthanis/bluewake/pull/2)
+- [M0 RecompCore diagnostic](https://github.com/irregularthanis/RecompCore/commit/0fe472a73232e5bbfc53698213915b3ac18cccd0)
