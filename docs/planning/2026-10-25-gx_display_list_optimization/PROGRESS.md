@@ -41,11 +41,11 @@ M2-T03 and M2-T04 remain open: FPS was not captured, and eviction/shutdown plus 
 
 #### M2-B follow-up: Optimize successful hits (depends: M2-B evidence)
 
-- [ ] M2-B0-T01: Attribute FIFO hashing, array/epoch validation, lookup/conflicts and vertex-copy work in stable, slow and worst views.
-- [ ] M2-B0-T02: Rank costs with activation counts and select one B1–B4 candidate; record a no-go if no component dominates.
+- [x] M2-B0-T01: Attribute FIFO hashing, array/epoch validation, lookup/conflicts and vertex-copy work in stable, slow and worst views.
+- [x] M2-B0-T02: Rank costs with activation counts and select one B1–B4 candidate; B3's redundant vertex initialization is the first isolated change.
 - [ ] M2-B1-T01: If selected, reduce FIFO identity cost without weakening payload mutation coverage.
 - [ ] M2-B2-T01: If selected, reduce indexed-array epoch work after auditing runtime mutation paths.
-- [ ] M2-B3-T01: If selected, map `DrawPlan`/interpolation/upload lifetimes before prototyping reduced vertex copying.
+- [x] M2-B3-T01: Map `DrawPlan`/interpolation/upload lifetimes and implement the narrow hit-path zero-initialization removal without changing ownership.
 - [ ] M2-B4-T01: If selected, measure conflicts, evictions and resident bytes before changing cache organization.
 - [ ] M2-B5-T01: Complete mutation, collision, eviction, reset, shutdown and cached-versus-uncached equivalence tests.
 - [ ] M2-B6-T01: Run A/A then rotated cache-off/M2-B/optimized-candidate Deck rounds across fixed views and the five-scene tour.
@@ -84,5 +84,7 @@ Parallel with M1 and M2; owns state generations and cache-hit comparison.
 | M2-T01 | [RecompCore `739de26`](https://github.com/irregularthanis/RecompCore/commit/739de26186b636ad251c4062ad20db0f916fda35) | Inspect and test the implemented cache key and fallback | 256-entry thread-local cache; default-off | FIFO payload and layout identify direct data; distinct indexed arrays use tracked dirty epochs; unavailable identity bypasses. |
 | M2-T02 | BlueWake [`c0eea43`](https://github.com/irregularthanis/bluewake/commit/c0eea43686bfd30085986ef6a0e09937fa3b53e4), AppImage `ebbc9a47...c79e` | Focused CTest; same-AppImage cache-off/cache-on 15-second fixed-view samples | Steam Deck LCD, Game Mode, pacing disabled | PASS: 91.5% eligible hit rate; repeated worst-view GX-worker CPU -5.1% and process CPU -1.1%. Stable view process CPU +3.2%; slow -1.4%. No visual issue; player reported greater stability. |
 | M2-B0 diagnostic | [RecompCore `3586581`](https://github.com/irregularthanis/RecompCore/commit/3586581a76cd4c7720357271a4c49449c3eee08b) | Build and run focused `gxcore_tests` with `DOL_GXCORE_OPT_LOG=1` | GCC 16 isolated GXRuntime build | PASS: reports payload bytes, epoch queries, arrays examined, hit vertices, copied bytes, conflicts and evictions. Detailed updates remain opt-in; Deck attribution pending. |
+| M2-B0-T01 | Private stable `b5e2bfde...900e7`, slow `3c27693b...67f`, worst `717c9fff...a2c` counter logs and private worst-view `perf.data` | Three isolated fixed-view runs plus 15-second 499 Hz cycles profile | Steam Deck LCD, Game Mode, pacing disabled; BlueWake `f27330a`, RecompCore `3586581` | Hit rates 78.5–90.8%; cached copy volume 15.6–20.3× FIFO hash volume. Worst-view profile: `build_draw_plan_into` 3.55%, vector zero-fill 0.49%, dirty epoch 0.10%, visible long hash 0.05%. |
+| M2-B0-T02 / M2-B3-T01 | [RecompCore `2a4a985`](https://github.com/irregularthanis/RecompCore/commit/2a4a985615029acedf1de76e17c6126ace1d66ce) | Source lifetime audit; defer `plan.vertices.assign(...)` from pre-lookup to miss branch; focused `gxcore_tests` | GCC 16 isolated GXRuntime build | PASS: hit path no longer zeroes the complete vector immediately before cached assignment; ownership and cached copy remain unchanged. Deck A/B pending. |
 
 Private logs, saves, translated modules and AppImages are not published.

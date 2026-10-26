@@ -4,7 +4,7 @@ Status: M0 complete; M2-B shows a repeatable GX-worker reduction and remains und
 
 Baseline: [`chrissotraidis/bluewake@b1bf26a`](https://github.com/chrissotraidis/bluewake/commit/b1bf26a0b8a5c1c6e86b9351d658806ff9eb3c1c)
 
-Current integration: this PR pins [`irregularthanis/RecompCore@3586581`](https://github.com/irregularthanis/RecompCore/commit/3586581a76cd4c7720357271a4c49449c3eee08b), which keeps M2-B behavior and adds default-off M2-B0 cost counters on BlueWake's current `1446450` runtime base. Both the dependency inventory and the builders' authoritative profile use this revision. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
+Current integration: this PR pins [`irregularthanis/RecompCore@2a4a985`](https://github.com/irregularthanis/RecompCore/commit/2a4a985615029acedf1de76e17c6126ace1d66ce), which keeps M2-B behavior, adds default-off M2-B0 cost counters, and removes a measured redundant hit-path vertex initialization on BlueWake's current `1446450` runtime base. Both the dependency inventory and the builders' authoritative profile use this revision. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
 
 [Product brief](PRD.md) · [Tracker](PROGRESS.md)
 
@@ -197,6 +197,16 @@ geometry_cache_indexed_arrays_examined;
 ```
 
 B0 should prefer sampled profiles. These detailed counters update only with `DOL_GXCORE_OPT_LOG=1`; ordinary M2-B cache-on runs retain the original activation counters. Per-draw clock reads are not part of this diagnostic.
+
+#### M2-B0 findings and selected candidate
+
+| View | Eligible hit rate | Cached bytes copied / FIFO bytes hashed | Epoch queries | Conflicts / misses |
+| --- | ---: | ---: | ---: | ---: |
+| Stable | 78.5% | 5.90 GB / 379 MB | 1,485,932 | 114,602 / 114,747 |
+| Slow | 89.2% | 12.44 GB / 671 MB | 4,523,657 | 173,237 / 173,427 |
+| Worst | 90.8% | 11.63 GB / 573 MB | 5,403,981 | 175,261 / 175,411 |
+
+A 15-second `perf` capture in the worst view attributed 3.55% of total sampled cycles to `build_draw_plan_into`, 0.49% to `vector<float>::assign(size, value)`, 0.10% to `dol_guest_memory_dirty_epoch`, and 0.05% to the visible long-payload hash symbol. Source inspection found that every lookup initialized the full output vector before a hit replaced it with cached vertices. B3 therefore starts with the narrow [`2a4a985`](https://github.com/irregularthanis/RecompCore/commit/2a4a985615029acedf1de76e17c6126ace1d66ce) change: defer zero-initialization until a miss. It preserves the existing vector copy and ownership boundary; broader zero-copy work remains out of scope until this candidate is qualified.
 
 Candidate isolation matters: B1–B4 are alternatives selected by B0, not a bundle. B3 is the broadest because `DrawPlan::vertices` is consumed by frame interpolation and staging upload; it must remain separate from key/lookup experiments.
 
