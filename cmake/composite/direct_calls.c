@@ -27,7 +27,6 @@ const volatile BwHostSkipFast* bw_host_skip_fast;
 bool bw_host_skip_verify;
 static unsigned long long s_skip_unsafe, s_skip_conservative, s_skip_inline;
 bool bw_direct_measure;
-bool bw_direct_return_specialized;
 unsigned long long bw_direct_measure_results[BW_DIRECT_PHASE_COUNT][BW_DIRECT_RESULT_COUNT];
 unsigned long long bw_direct_measure_return_match;
 unsigned long long bw_direct_measure_return_mismatch;
@@ -175,10 +174,6 @@ BW_DIRECT_EXPORT void bluewake_composite_direct_call_measure(bool enabled) {
         bw_direct_measure_return_match = 0ull;
         bw_direct_measure_return_mismatch = 0ull;
     }
-}
-
-BW_DIRECT_EXPORT void bluewake_composite_direct_return_specialized(bool enabled) {
-    bw_direct_return_specialized = enabled;
 }
 
 BW_DIRECT_EXPORT void bluewake_composite_direct_call_measure_counts(
