@@ -1,107 +1,73 @@
 # TECH_PLAN — Steam Deck runtime CPU optimization
 
-Status: Planning only
+Status: M0 complete; M1 measurement in progress
 
-Control source: upstream [`v0.9.0`](https://github.com/chrissotraidis/bluewake/releases/tag/v0.9.0) at [`211abfd`](https://github.com/chrissotraidis/bluewake/commit/211abfdecf13beb5b9f2120459a1a3cde50dd84e). Measurement tooling: [`d1bb41b`](https://github.com/irregularthanis/bluewake/commit/d1bb41b).
+Control: upstream [`v0.9.0`](https://github.com/chrissotraidis/bluewake/releases/tag/v0.9.0) at [`211abfd`](https://github.com/chrissotraidis/bluewake/commit/211abfdecf13beb5b9f2120459a1a3cde50dd84e). Measurement tooling: [`d1bb41b`](https://github.com/irregularthanis/bluewake/commit/d1bb41b).
 
 [Product brief](PRD.md) · [Tracker](PROGRESS.md)
 
-## Inspected facts
+## Technical basis
 
-- BlueWake's game thread runs translated DOL/REL code, host edges, guest-state access, and service delivery serially; see the [game-thread execution model](../../architecture/GameThread.md#high-level-execution).
-- The graphics path moves GX writes from that thread into frontend/GX conversion and platform rendering; see the [GX command path](../../architecture/Graphics.md#gx-command-path).
-- The rendered worst-angle capture attributes 64.6% of game-thread samples to translated code, 13.4% to guest state/dispatch, 9.1% to host coordination, and 6.3% to native replacements. Whole-process GX/Aurora is 15.3%.
-- A private 120-second, 99 Hz headless diagnostic attributed 7.23% of process cycles to `func_802456E0`. Generated-source mapping assigns about 1.55% process-wide to `GroundCross`, `GroundCrossRp`, and `GroundCrossGrpRp`, versus 3.37% to shared generated helpers. Optimized shared tails make the helper-to-caller split approximate.
-- [PR #436](https://github.com/chrissotraidis/bluewake/pull/436) already tested a guarded `GroundCrossGrpRp` path: 28.1% acceptance, 226.1 ns native versus 179.3 ns translated for accepted early returns, and fixed-view results within noise. That partial hook is closed and is not the next candidate.
-- [`direct_calls.py`](../../../scripts/windows/direct_calls.py) already rewrites eligible constant and indirect guest calls. [`bw_direct_call_ready`](../../../cmake/composite/direct_calls.h) checks exception/budget state, interrupt state, depth and host observation at entry and return; the plan must measure those existing checks before proposing a change.
-- Compatibility services account for 0.1% of whole-process samples and are not a current candidate.
-- [`profile_deck.sh`](../../../scripts/linux/profile_deck.sh), [`bench_tour.py`](../../../scripts/bench_tour.py), session timing, and guest checkpoints already provide the measurement layers described in the [performance workflow](../../performance/Overview.md#performance-workflow).
-
-## M0 control receipt
-
-| Field | Frozen control |
-| --- | --- |
-| Application source | Upstream tag `v0.9.0`, commit `211abfdecf13beb5b9f2120459a1a3cde50dd84e`, clean checkout |
-| RecompCore | `1446450c79046bd34e43abadc27522eeab768a6e` from the release lock |
-| DolRecomp | `b8b534591cba8ca7cd43943a655ee6e2591cf5de` from the release lock |
-| Toolchain / target | Ubuntu Clang 18.1.3, `x86-64-v3`, reproducible Linux container |
-| Production options | Prepared/fixed CPU/fixed MEM1, inline FP/GPR, gather pipe, direct calls, native J3D/vector/math/skin/game-math, lean blocks, local PGO |
-| AppImage | Private `BlueWake-main-090-x86_64.AppImage`; SHA-256 `476a335f0cf6ec35a4070850de5a17e5c8d45441a60638603fc3e6e7e8d4be48` |
-| Module | SHA-256 `7b094be4e42b62c3d59db293ec364f71bcbca299e23d81859a258d992b519398` |
-| Training profile | SHA-256 `a160ddf641108d1f56c994f6739ec83df0cff44d6bb20da6a1d6f9a0ebd77535` |
-
-The retained private artifact is
-`build/artifacts/main-090/211abfdecf13/BuilderProvenance.json` in the local
-workspace; it is intentionally not a repository link. M0 A/A
-uses this exact AppImage for every round; candidate profiling tools must attach
-to it without rebuilding or changing its runtime source.
-
-The completed headless A/A tour used two aliases of that identical AppImage,
-ten measured runs per alias, ABBA interleaving, five scenes and 31 checkpoints.
-Every checkpoint matched. Scene deltas ranged from -0.07% to +0.17%, while the
-per-run geometric-mean median changed by -0.00%. For this workload, changes
-below 0.2% are therefore noise unless a later source-matched A/A shows a wider
-band. Rendered stable/slow/worst noise was measured separately below.
-
-Rendered Game Mode measurements used one continuous `0.9.0` process, stationary
-camera views, and three 30-second rounds per view. Each round records session
-rate/busy samples plus `perf stat` task-clock, cycles, instructions, branches
-and cache events:
-
-| View | Retraces/s across rounds | Busy | IPC | Observed rate spread |
-| --- | --- | --- | --- | ---: |
-| Stable | 59.88, 59.92, 59.95 | 87.2–89.1% | 1.796–1.830 | 0.12% |
-| Slow | 55.00, 55.40, 55.78 | 97.0–97.1% | 1.833–1.873 | 1.42% |
-| Worst | 49.01, 49.25, 49.70 | 96.9–97.3% | 1.955–1.964 | 1.41% |
-
-Candidate fixed-view results must exceed the corresponding view's observed
-spread consistently; a single faster round is insufficient. The headless tour
-and checkpoint gate remain required because manual camera placement alone is
-not deterministic correctness evidence.
-
-## Investigation flow
+- The [game thread](../../architecture/GameThread.md#high-level-execution) serially runs translated DOL/REL code, guest-state access, host edges and service delivery.
+- The [GX command path](../../architecture/Graphics.md#gx-command-path) begins on that thread, then moves conversion and rendering work into the graphics stack.
+- The worst-angle profile assigns 64.6% of game-thread samples to translated code, 13.4% to guest state/dispatch, 9.1% to host coordination and 6.3% to native replacements.
+- A separate 120-second diagnostic assigns about 3.37% process-wide to shared generated helpers and 1.55% to the `GroundCross` family.
+- [PR #436](https://github.com/chrissotraidis/bluewake/pull/436) rejected a partial `GroundCrossGrpRp` hook: 28.1% acceptance, slower accepted calls and no repeatable Deck gain.
 
 ```mermaid
 flowchart LR
-    Baseline["Freeze source, build,<br/>scene and A/A noise"]
-    D["D1<br/>direct-call guards"]
-    F["D2<br/>floating-point helpers"]
-    G["D3<br/>gather-pipe path"]
-    Gate["Candidate gate<br/>cost, safety, expected gain"]
-    Build["Isolated candidate build"]
-    Fixed["Stable / slow / worst A/B"]
-    Tour["Full scenes and<br/>player-facing checks"]
-    Decision["Retain or reject"]
+    M0["M0<br/>Freeze control and noise"]
+    M1["M1<br/>Direct-call guards"]
+    M2["M2<br/>FP and gather-pipe costs"]
+    M3["M3<br/>Rank one candidate"]
+    M4["M4<br/>Implement and test"]
+    M5["M5<br/>Deck qualification"]
 
-    Baseline --> D --> Gate
-    Baseline --> F --> Gate
-    Baseline --> G --> Gate
-    Gate --> Build --> Fixed
-    Fixed -->|positive| Tour --> Decision
-    Fixed -->|neutral/regression| Decision
+    M0 --> M1
+    M0 --> M2
+    M1 --> M3
+    M2 --> M3
+    M3 --> M4 --> M5
 ```
 
-## Workstreams
+## M0 — Freeze control and measurement noise
 
-| Order | Existing surface to inspect | Practical investigation | Candidate gate |
-| --- | --- | --- | --- |
-| D1 | [`bw_direct_call_ready`](../../../cmake/composite/direct_calls.h), generated sites in [`direct_calls.py`](../../../scripts/windows/direct_calls.py), and `host_direct_can_skip_with` | Count entry/return checks; attribute each predicate; classify constant watched addresses and state changes between paired checks | Remove, combine, or specialize a check only when its invalidation contract is preserved |
-| D2 | [`inline_fp.h`](../../../cmake/composite/inline_fp.h) and generated call sites | Attribute samples by FP operation and inspect rounding, conversion and CPU-state synchronization around hot blocks | Eliminate only repeated state work; preserve PowerPC results and exceptions |
-| D3 | [`gather_pipe.h`](../../../cmake/composite/gather_pipe.h), GXRuntime submission, and [GX command path](../../architecture/Graphics.md#gx-command-path) | Separate packing, bounds/alias checks, parsing, queueing and waits by thread/frame | Change the dominant component only if it improves game-thread progress |
-| Fallback | `GroundCross` → `GroundCrossRp` → `GroundCrossGrpRp` | Price a complete-region replacement against the measured 1.55% ceiling and [PR #436](https://github.com/chrissotraidis/bluewake/pull/436) | Proceed only with broader coverage and a predicted gain beyond noise |
+### Build receipt
 
-D1 and D2 share generated-module sources, so their instrumentation can run in
-parallel but candidate edits must remain separate. D3 is independently
-measurable; RecompCore runtime changes require a companion PR before BlueWake
-pins them.
+| Field | Frozen control |
+| --- | --- |
+| BlueWake | `v0.9.0` / `211abfdecf13beb5b9f2120459a1a3cde50dd84e` |
+| RecompCore | `1446450c79046bd34e43abadc27522eeab768a6e` |
+| DolRecomp | `b8b534591cba8ca7cd43943a655ee6e2591cf5de` |
+| Toolchain | Ubuntu Clang 18.1.3, `x86-64-v3`, Linux container |
+| Options | Prepared/fixed CPU/fixed MEM1, inline FP/GPR, gather pipe, direct calls, native J3D/vector/math/skin/game-math, lean blocks and local PGO |
+| AppImage | SHA-256 `476a335f0cf6ec35a4070850de5a17e5c8d45441a60638603fc3e6e7e8d4be48` |
+| Game module | SHA-256 `7b094be4e42b62c3d59db293ec364f71bcbca299e23d81859a258d992b519398` |
+| Training profile | SHA-256 `a160ddf641108d1f56c994f6739ec83df0cff44d6bb20da6a1d6f9a0ebd77535` |
 
-## First candidate: paired direct-call guards
+### Noise measurements
 
-Eligible calls already bypass the chassis, but generated sites commonly run
-`bw_direct_call_ready` before entering the callee and again after it returns:
+| Workload | Repetitions | Correctness | Observed spread |
+| --- | ---: | --- | ---: |
+| Headless five-scene tour | 10 per identical alias, ABBA | 31/31 checkpoints matched every run | -0.07% to +0.17%; aggregate -0.00% |
+| Stable rendered view | 3 × 30 s | Same process and fixed view | 0.12% |
+| Slow rendered view | 3 × 30 s | Same process and fixed view | 1.42% |
+| Worst rendered view | 3 × 30 s | Same process and fixed view | 1.41% |
+
+Candidate results must consistently exceed the matching noise band. Manual
+views gate performance; the headless tour and checkpoints gate repeatability
+and guest-visible correctness.
+
+## M1 — Measure paired direct-call guards
+
+### Existing path
+
+[`direct_calls.py`](../../../scripts/windows/direct_calls.py) rewrites eligible
+guest calls. The generated path checks
+[`bw_direct_call_ready`](../../../cmake/composite/direct_calls.h) before entry
+and again only when the callee reaches the expected return address:
 
 ```c
-/* Existing generated shape, simplified. */
 if (bw_direct_call_ready(ctx, target)) {
     bw_chunk_fns[index](ctx);
     if (ctx->pc == return_pc && bw_direct_call_ready(ctx, return_pc))
@@ -109,80 +75,124 @@ if (bw_direct_call_ready(ctx, target)) {
 }
 ```
 
-The investigation will measure the two checks separately and record which
-inputs can change during the callee: exception, cycle budget/downcount,
-interrupt-source state, direct depth, and host-observed addresses. A proposed
-specialized path may reuse only facts proven unchanged; otherwise the second
-check remains. Constant-target classification must come from the builder's
-watch list, while mutable host flags remain runtime inputs.
+The guard protects exception, cycle-budget, interrupt, depth and host-observation
+boundaries. Constant watched addresses are already excluded during generation.
 
-The M1 diagnostic is implemented in this PR. Generated direct calls use
-[`bw_direct_call_ready_measured`](../../../cmake/composite/direct_calls.h) for
-entry and return checks and record whether the callee reached its expected
-return address. `BLUEWAKE_DIRECT_CALL_MEASURE=1` enables counters for unavailable
-state, depth, exception, budget, host activity, fast/slow rejection and success.
-The normal path continues to call the original predicate and emits no report.
+### Measurement mechanism
 
-### Initial M1 measurement
+This PR adds opt-in [`bw_direct_call_ready_measured`](../../../cmake/composite/direct_calls.h)
+calls at direct-call entry and return sites. `BLUEWAKE_DIRECT_CALL_MEASURE=1`
+counts one outcome per reached guard plus expected/diverted returns. Without the
+variable, generated code delegates to the original predicate and emits nothing.
 
-One Game Mode session covered startup plus stable, slow and worst Outset views.
-It recorded 2,239,201,382 entry checks: 99.40% passed, 0.43% were rejected by
-the fast address filter, 0.15% by the cycle budget and 0.02% by host activity.
-Of the accepted entries, 79.23% returned to the expected continuation and
-20.77% diverted elsewhere. The 1,749,593,903 reached return checks passed
-99.79%; budget and fast-filter rejection accounted for the remaining 0.21%.
+### Initial Game Mode results
 
-These cumulative counts identify where the path exits, but do not yet measure
-exclusive guard cost or calls per rendered frame. M1-T01 therefore remains
-open pending source-matched cost attribution and normalized runs.
+Artifact: PR-head AppImage `03bb2b60…`; Clang 18; `x86-64-v3`. The session
+included startup and stable/slow/worst Outset views, so counts are cumulative.
 
-## Candidate contract
+| Entry outcome | Count | Share |
+| --- | ---: | ---: |
+| Allowed | 2,225,700,489 | 99.3971% |
+| Fast address rejection | 9,642,984 | 0.4306% |
+| Cycle-budget rejection | 3,413,383 | 0.1524% |
+| Host-busy rejection | 434,720 | 0.0194% |
+| Depth rejection | 9,806 | 0.0004% |
+| Exception, unavailable or slow rejection | 0 | 0.0000% |
+| **Total** | **2,239,201,382** | **100%** |
 
-Every proposal adds a short record before implementation:
+| Result after an allowed entry | Count | Share of allowed entries |
+| --- | ---: | ---: |
+| Reached expected return and its guard | 1,749,593,903 | 78.6087% |
+| Returned elsewhere | 458,596,685 | 20.6046% |
+| Did not reach the return classifier | 17,509,901 | 0.7867% |
+| **Allowed entries** | **2,225,700,489** | **100%** |
+
+| Reached return-guard outcome | Count | Share |
+| --- | ---: | ---: |
+| Allowed | 1,745,963,553 | 99.7925% |
+| Cycle-budget rejection | 2,081,179 | 0.1190% |
+| Fast address rejection | 1,549,163 | 0.0885% |
+| Host-busy rejection | 8 | <0.0001% |
+| Other rejection | 0 | 0.0000% |
+| **Total** | **1,749,593,903** | **100%** |
+
+### Measured implications
+
+| Observation | Implication | Decision state |
+| --- | --- | --- |
+| Entry accepts 99.40% | The guard is very hot; value depends on its exclusive cost, not rejection frequency | Measure exclusive time before changing it |
+| 20.60% return elsewhere | The expected-return test removes more continuation attempts than the return guard | Preserve this test |
+| Return guard rejects 3,630,350 times | The second guard is semantically active, despite its 99.79% pass rate | Do not delete it unconditionally |
+| 57.33% of return rejections are budget; 42.67% are fast-address | Any specialization must preserve both invalidation sources | Map which callees can change each input |
+| No slow-path rejection occurred | This run used the production inline fast answer | Do not generalize to stage-select/diagnostic modes |
+
+### Remaining M1 gate
+
+- Normalize checks per retrace in controlled, source-matched runs.
+- Attribute exclusive entry/return guard cost; counts alone do not establish gain.
+- Explain the 0.79% that did not reach return classification.
+- Produce one contract-preserving specialization or record a no-go.
+
+## M2 — Split FP and gather-pipe costs
+
+| Surface | Measurement | Safety gate | Output |
+| --- | --- | --- | --- |
+| [`inline_fp.h`](../../../cmake/composite/inline_fp.h) | Samples/calls by PowerPC operation and surrounding state work | Preserve results, rounding, conversion and exceptions | One bounded candidate or no-go |
+| [`gather_pipe.h`](../../../cmake/composite/gather_pipe.h) | Split packing, validation, parsing, queueing and waits by thread/frame | Preserve ordering, mutation, interpolation and lifecycle | One bounded candidate or no-go |
+
+M2 runs in parallel with M1, but source changes remain isolated so A/B results
+have one cause. RecompCore changes require a companion PR before a BlueWake pin.
+
+## M3 — Rank and freeze one candidate
+
+Each candidate record must contain:
 
 ```text
 source/build + scene → owning thread → calls/frame → exclusive samples/time
-                     → safety invariant → expected avoided work → acceptance metric
+                     → safety invariant → avoided work → acceptance metric
 ```
 
-For a translated routine, source mapping must prove the original function range contains the sampled instruction; proximity to a symbol is insufficient. A native replacement must preserve guest registers, memory, exceptions, timing fields required by callers, and fallback behavior. For dispatch/state work, the plan must identify what invalidates any cached decision. For GX work, cached or reused data must retain ordering, mutation, interpolation, and lifecycle contracts.
+Rank M1/M2 candidates by exclusive cost, removable work, safety and expected
+player-facing gain. Only if neither qualifies, price a complete GroundCross
+replacement against its measured 1.55% process-wide ceiling.
 
-## Verification
+For translated routines, mapping must prove that the sampled instruction is
+inside the original function. Native replacements must preserve guest state,
+exceptions, timing fields and fallback behavior.
 
-| Layer | Method | Required evidence | Stop condition |
-| --- | --- | --- | --- |
-| Baseline | Three same-build fixed-view samples | Noise interval, source/build receipt, activation | Unstable scene or mismatched build |
-| Attribution | `perf`, counters, source/range inspection | Thread, calls, exclusive share, exact code path | Unresolved ownership |
-| Focused correctness | Existing host/GX/native tests plus candidate-specific regression | Candidate path activated; fallback and mutation covered | Missing activation or mismatch |
-| Fixed-view A/B | Interleaved control/candidate at stable, slow, worst angles | CPU/frame-time/game-speed delta exceeds noise | Neutral or regression stops full tour |
-| Full qualification | Established headless/rendered scenes, checkpoints, player traversal | Repeatable benefit and no observable regression | Incomplete scene or checkpoint evidence is inconclusive |
+## M4 — Implement and test the selected candidate
 
-The profiler ranks work; it does not validate an optimization. A lower worker percentage alone is insufficient if game speed and frame progress do not improve.
+1. Implement one isolated, default-off candidate with a fallback.
+2. Add focused activation, mutation, boundary and equivalence tests.
+3. Build source-matched control/candidate artifacts and record source,
+   dependency, module, PGO and AppImage hashes.
 
-## Implementation order
+Do not combine M1 and M2 candidates in the first A/B comparison.
 
-| Milestone | Depends | Can run with | Deliverable / gate |
-| --- | --- | --- | --- |
-| M0 | — | — | Freeze source-matched baseline, A/A noise, scenes, and candidate-record format |
-| M1 | M0 | M2 | Direct-call entry/return cost split, invalidation contract, and candidate or no-go |
-| M2 | M0 | M1 | FP and gather-pipe operation attribution, each ending in a candidate or no-go |
-| M3 | M1, M2 | — | Rank shared-cost candidates; price the complete GroundCross fallback only if needed |
-| M4 | M3 | — | Implement the strongest isolated candidate with focused tests |
-| M5 | M4 | — | Fixed-view gate, then full qualification only if positive |
+## M5 — Qualify or reject on Steam Deck
 
-Critical path: M0 → parallel M1/M2 → M3 → M4 → M5. Candidate implementation is serialized so A/B results have one cause.
+| Gate | Method | Required result |
+| --- | --- | --- |
+| Identity | Verify source, pins, flags, PGO and activation | Only the candidate differs |
+| Fixed views | Interleaved stable/slow/worst control/candidate rounds | Consistent gain beyond each M0 noise band |
+| Headless tour | Established five scenes and checkpoints | Repeatable gain; identical checkpoints |
+| Rendered/player-facing | Full scene methodology and traversal | Repeatable improvement without observable regression |
 
-## Decisions and gaps
+A neutral or regressing fixed-view result stops full qualification. A lower
+worker percentage alone is insufficient unless game speed or frame progress
+improves.
 
-- Start with the existing direct-call guards; do not propose adding direct-call rewriting because it is already present.
-- `func_802456E0` decomposition confirms the prior GroundCross target was reasonable but does not reverse its negative Deck result.
-- FP and gather-pipe percentages are source-attribution signals, not exclusive operation timings; M2 must split them before selection.
-- The current profile has 17.7% unresolved samples. Known stripped GX leaves were classified, but unresolved entries must not be assigned speculatively.
-- No candidate is accepted from this profile alone.
+## Current decisions and gaps
+
+- Direct-call rewriting already exists; M1 measures its remaining guard cost.
+- Compatibility services are 0.1% of process samples and are not a candidate.
+- FP/gather percentages are attribution signals, not exclusive timings.
+- The source profile has 17.7% unresolved samples; unknown entries remain unassigned.
+- No optimization candidate is accepted yet.
 
 ## References
 
 - [Steam Deck tracker #215](https://github.com/chrissotraidis/bluewake/issues/215)
 - [Runtime interaction boundaries](../../architecture/Runtime.md#interaction-boundaries)
-- [Performance domains](../../performance/Overview.md#performance-domains)
+- [Performance domains and workflow](../../performance/Overview.md#performance-domains)
 - [Profiling guide](../../PROFILING.md)
