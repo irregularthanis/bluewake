@@ -11,6 +11,9 @@ Sources: upstream [`a773185`](https://github.com/chrissotraidis/bluewake/commit/
 - BlueWake's game thread runs translated DOL/REL code, host edges, guest-state access, and service delivery serially; see the [game-thread execution model](../../architecture/GameThread.md#high-level-execution).
 - The graphics path moves GX writes from that thread into frontend/GX conversion and platform rendering; see the [GX command path](../../architecture/Graphics.md#gx-command-path).
 - The rendered worst-angle capture attributes 64.6% of game-thread samples to translated code, 13.4% to guest state/dispatch, 9.1% to host coordination, and 6.3% to native replacements. Whole-process GX/Aurora is 15.3%.
+- A private 120-second, 99 Hz headless diagnostic attributed 7.23% of process cycles to `func_802456E0`. Generated-source mapping assigns about 1.55% process-wide to `GroundCross`, `GroundCrossRp`, and `GroundCrossGrpRp`, versus 3.37% to shared generated helpers. Optimized shared tails make the helper-to-caller split approximate.
+- [PR #436](https://github.com/chrissotraidis/bluewake/pull/436) already tested a guarded `GroundCrossGrpRp` path: 28.1% acceptance, 226.1 ns native versus 179.3 ns translated for accepted early returns, and fixed-view results within noise. That partial hook is closed and is not the next candidate.
+- [`direct_calls.py`](../../../scripts/windows/direct_calls.py) already rewrites eligible constant and indirect guest calls. [`bw_direct_call_ready`](../../../cmake/composite/direct_calls.h) checks exception/budget state, interrupt state, depth and host observation at entry and return; the plan must measure those existing checks before proposing a change.
 - Compatibility services account for 0.1% of whole-process samples and are not a current candidate.
 - [`profile_deck.sh`](../../../scripts/linux/profile_deck.sh), [`bench_tour.py`](../../../scripts/bench_tour.py), session timing, and guest checkpoints already provide the measurement layers described in the [performance workflow](../../performance/Overview.md#performance-workflow).
 
@@ -19,17 +22,17 @@ Sources: upstream [`a773185`](https://github.com/chrissotraidis/bluewake/commit/
 ```mermaid
 flowchart LR
     Baseline["Freeze source, build,<br/>scene and A/A noise"]
-    T["Track T<br/>translated chunks"]
-    D["Track D<br/>dispatch and guest state"]
-    G["Track G<br/>GX conversion"]
+    D["D1<br/>direct-call guards"]
+    F["D2<br/>floating-point helpers"]
+    G["D3<br/>gather-pipe path"]
     Gate["Candidate gate<br/>cost, safety, expected gain"]
     Build["Isolated candidate build"]
     Fixed["Stable / slow / worst A/B"]
     Tour["Full scenes and<br/>player-facing checks"]
     Decision["Retain or reject"]
 
-    Baseline --> T --> Gate
     Baseline --> D --> Gate
+    Baseline --> F --> Gate
     Baseline --> G --> Gate
     Gate --> Build --> Fixed
     Fixed -->|positive| Tour --> Decision
@@ -38,13 +41,38 @@ flowchart LR
 
 ## Workstreams
 
-| Track | Existing surface to inspect | Practical investigation | Candidate type |
+| Order | Existing surface to inspect | Practical investigation | Candidate gate |
 | --- | --- | --- | --- |
-| T: translated game | generated `func_*` chunks; `config/GZLE01/symbols.txt`; decomp DOL/REL sources | Resolve each hot sample to contained functions, annotate instructions/callers, count scene activation | Native replacement, generator optimization, or no-go |
-| D: dispatch/state | `chassis_dispatch`, `ppc_guest_alias_resolve`, `host_direct_can_skip_with`, `bw_direct_call_ready`; [guest-state contract](../../architecture/GuestState.md) | Separate dispatch, resolver, observation, and guard cost; identify repeated invariant checks | Hoist/cache a proven invariant or reduce dispatch bookkeeping |
-| G: GX conversion | RecompCore GXRuntime `submit_packet`, `build_draw_plan_into`, `fill_render_packet`, `parse_stream`; [native draw construction](../../architecture/Graphics.md#from-gx-state-to-a-native-draw) | Measure frame-aligned worker work, game-thread waits, draw volume, and queue pressure | Reduce copies/parsing/state conversion only if it affects frame progress |
+| D1 | [`bw_direct_call_ready`](../../../cmake/composite/direct_calls.h), generated sites in [`direct_calls.py`](../../../scripts/windows/direct_calls.py), and `host_direct_can_skip_with` | Count entry/return checks; attribute each predicate; classify constant watched addresses and state changes between paired checks | Remove, combine, or specialize a check only when its invalidation contract is preserved |
+| D2 | [`inline_fp.h`](../../../cmake/composite/inline_fp.h) and generated call sites | Attribute samples by FP operation and inspect rounding, conversion and CPU-state synchronization around hot blocks | Eliminate only repeated state work; preserve PowerPC results and exceptions |
+| D3 | [`gather_pipe.h`](../../../cmake/composite/gather_pipe.h), GXRuntime submission, and [GX command path](../../architecture/Graphics.md#gx-command-path) | Separate packing, bounds/alias checks, parsing, queueing and waits by thread/frame | Change the dominant component only if it improves game-thread progress |
+| Fallback | `GroundCross` → `GroundCrossRp` → `GroundCrossGrpRp` | Price a complete-region replacement against the measured 1.55% ceiling and [PR #436](https://github.com/chrissotraidis/bluewake/pull/436) | Proceed only with broader coverage and a predicted gain beyond noise |
 
-Track T and D share translated-module/runtime boundaries and must use separate candidate branches. Track G is independently measurable and can proceed in parallel, but RecompCore runtime changes require their own companion PR before BlueWake pins them.
+D1 and D2 share generated-module sources, so their instrumentation can run in
+parallel but candidate edits must remain separate. D3 is independently
+measurable; RecompCore runtime changes require a companion PR before BlueWake
+pins them.
+
+## First candidate: paired direct-call guards
+
+Eligible calls already bypass the chassis, but generated sites commonly run
+`bw_direct_call_ready` before entering the callee and again after it returns:
+
+```c
+/* Existing generated shape, simplified. */
+if (bw_direct_call_ready(ctx, target)) {
+    bw_chunk_fns[index](ctx);
+    if (ctx->pc == return_pc && bw_direct_call_ready(ctx, return_pc))
+        goto translated_return;
+}
+```
+
+The investigation will measure the two checks separately and record which
+inputs can change during the callee: exception, cycle budget/downcount,
+interrupt-source state, direct depth, and host-observed addresses. A proposed
+specialized path may reuse only facts proven unchanged; otherwise the second
+check remains. Constant-target classification must come from the builder's
+watch list, while mutable host flags remain runtime inputs.
 
 ## Candidate contract
 
@@ -74,18 +102,19 @@ The profiler ranks work; it does not validate an optimization. A lower worker pe
 | Milestone | Depends | Can run with | Deliverable / gate |
 | --- | --- | --- | --- |
 | M0 | — | — | Freeze source-matched baseline, A/A noise, scenes, and candidate-record format |
-| M1 | M0 | M2, M3 | Ranked translated functions with exact source/instruction mapping |
-| M2 | M0 | M1, M3 | Dispatch/state cost split and one safety-bounded candidate |
-| M3 | M0 | M1, M2 | Frame-aligned GX cost/wait result and candidate or measured no-go |
-| M4 | M1, M2, M3 | — | Rank the tracks; implement the strongest isolated candidate with focused tests |
+| M1 | M0 | M2 | Direct-call entry/return cost split, invalidation contract, and candidate or no-go |
+| M2 | M0 | M1 | FP and gather-pipe operation attribution, each ending in a candidate or no-go |
+| M3 | M1, M2 | — | Rank shared-cost candidates; price the complete GroundCross fallback only if needed |
+| M4 | M3 | — | Implement the strongest isolated candidate with focused tests |
 | M5 | M4 | — | Fixed-view gate, then full qualification only if positive |
 
-Critical path: M0 → parallel M1/M2/M3 investigations → M4 → M5. The investigation tracks inspect different ownership; implementation is serialized so A/B results have one cause.
+Critical path: M0 → parallel M1/M2 → M3 → M4 → M5. Candidate implementation is serialized so A/B results have one cause.
 
 ## Decisions and gaps
 
-- Start with T and D for game-thread FPS. G remains valuable but is secondary unless frame-aligned waits show it blocks progress.
-- `func_802456E0` is a translated chunk, not one original function; it must be decomposed before selection.
+- Start with the existing direct-call guards; do not propose adding direct-call rewriting because it is already present.
+- `func_802456E0` decomposition confirms the prior GroundCross target was reasonable but does not reverse its negative Deck result.
+- FP and gather-pipe percentages are source-attribution signals, not exclusive operation timings; M2 must split them before selection.
 - The current profile has 17.7% unresolved samples. Known stripped GX leaves were classified, but unresolved entries must not be assigned speculatively.
 - No candidate is accepted from this profile alone.
 

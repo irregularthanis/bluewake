@@ -4,7 +4,7 @@ Status: Draft
 
 Sources: upstream [`a773185`](https://github.com/chrissotraidis/bluewake/commit/a7731853c197cc9763a86d62e731d65ca0b25556); measured profile from prototype [`d1bb41b`](https://github.com/irregularthanis/bluewake/commit/d1bb41b)
 
-Scope: investigate and optimize CPU paths identified in a rendered Steam Deck profile. Building a general-purpose profiler is excluded; the existing profiler is measurement infrastructure.
+Scope: investigate and optimize shared translated-code costs identified in a rendered Steam Deck profile. Building a general-purpose profiler and repeating rejected narrow native hooks are excluded; existing profiling tools remain measurement infrastructure.
 
 ## Problem
 
@@ -20,14 +20,22 @@ Scope: investigate and optimize CPU paths identified in a rendered Steam Deck pr
 
 The next work should convert those measurements into isolated candidates. It must not assume that a hot symbol is safe to remove, that worker CPU controls frame rate, or that lower CPU usage preserves guest behavior.
 
+A 120-second diagnostic subdivided the leading `func_802456E0` chunk. The
+three GroundCross routines account for about 1.55% of whole-process cycles,
+while shared generated helpers account for about 3.37%. The earlier guarded
+`GroundCrossGrpRp` experiment in [PR #436](https://github.com/chrissotraidis/bluewake/pull/436)
+covered only 28.1% of calls, made its accepted path slower, and produced no
+repeatable Deck gain. The broader opportunity is therefore shared translated
+machinery, not another narrow replacement of that routine.
+
 ```mermaid
 flowchart TD
     Profile["Worst-angle CPU profile"]
     Game["Translated game<br/>64.6% of game thread"]
     Dispatch["Guest state / dispatch<br/>13.4% of game thread"]
     GX["GX conversion<br/>15.3% of process"]
-    Map["Resolve functions and<br/>instruction-level costs"]
-    Candidate["One isolated candidate"]
+    Map["Resolve helper and<br/>instruction-level costs"]
+    Candidate["One shared-cost<br/>candidate"]
     Verify["Checkpoints, CPU,<br/>frame time and play"]
     Keep{"Better than control<br/>and behavior preserved?"}
 
@@ -39,9 +47,10 @@ flowchart TD
 
 ## Outcomes
 
-- Resolve leading translated chunks to original Wind Waker functions and exact expensive instructions before proposing native replacements or generator changes.
-- Measure call frequency and exclusive cost for dispatch/address-resolution checks; select only a redundant or amortizable operation with a preserved correctness contract.
-- Determine whether GX conversion delays the game thread or merely uses otherwise available worker capacity. Pursue it only when frame-aligned evidence shows player-facing value.
+- Measure the existing direct-call fast path and determine whether repeated readiness or host-observation checks can be safely specialized, combined, or amortized.
+- Attribute floating-point helper cost by operation and identify only checks or conversions proven redundant within a translated block.
+- Split gather-pipe cost into packing, guest-memory validation, command parsing, and synchronization; pursue it only when the dominant component affects frame progress.
+- Treat a complete `GroundCross` family replacement as a fallback investigation only if shared-helper work produces no viable candidate and new evidence overcomes PR #436's negative result.
 - Produce isolated control/candidate builds and retain changes only when improvement exceeds same-build noise across the affected fixed scene and full benchmark methodology.
 - Record rejected candidates with measurements so the same hypotheses are not repeatedly reimplemented.
 

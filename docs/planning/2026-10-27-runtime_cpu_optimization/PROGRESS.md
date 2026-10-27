@@ -1,6 +1,6 @@
 # PROGRESS — Steam Deck runtime CPU optimization
 
-Status: M0 baseline evidence captured; candidate mapping open
+Status: M0 baseline evidence captured; shared-helper candidates mapped
 
 [Product brief](PRD.md) · [Technical plan](TECH_PLAN.md)
 
@@ -14,31 +14,29 @@ Architecture: [performance workflow](../../performance/Overview.md#performance-w
 - [ ] M0-T02: Measure three same-build stable/slow/worst rounds and record A/A noise.
 - [ ] M0-T03: Freeze source/build receipts, scenes, metrics, and candidate-record format.
 
-### M1: Map translated hotspots (depends: M0)
+### M1: Measure paired direct-call guards (depends: M0)
 
-Parallel with M2 and M3; owns translated/decomp source mapping.
+Parallel with M2; owns direct-call generator and readiness-path analysis.
 
-- [ ] M1-T01: Resolve the five leading `func_*` chunks to contained original functions and sampled instructions.
-- [ ] M1-T02: Record callers, activation counts, exclusive cost, and existing native/generator coverage.
-- [ ] M1-T03: Select one safety-bounded candidate or record a measured no-go.
+- [ ] M1-T01: Measure entry and return readiness checks separately, including calls/frame and exclusive cost.
+- [ ] M1-T02: Record which readiness inputs can change during each eligible callee and which constant addresses are already filtered by generation.
+- [ ] M1-T03: Propose one semantics-preserving specialization/amortization or record a measured no-go.
 
-### M2: Split dispatch and guest-state cost (depends: M0)
+### M2: Split FP and gather-pipe helper cost (depends: M0)
 
-Parallel with M1 and M3; owns dispatch/resolver/guard analysis.
+Parallel with M1; owns helper-operation attribution only.
 
-- [ ] M2-T01: Measure calls and exclusive cost for dispatch, alias resolution, direct-call readiness, and host guards.
-- [ ] M2-T02: Document invariants and invalidation events for the dominant repeated check.
-- [ ] M2-T03: Select one eliminable/amortizable operation or record a measured no-go.
+- [ ] M2-T01: Attribute `inline_fp.h` samples by PowerPC operation and surrounding state work.
+- [ ] M2-T02: Split gather-pipe samples among packing, validation, parsing, queueing, and waits with thread ownership.
+- [ ] M2-T03: Select one shared-helper candidate or record measured no-go results for both paths.
 
-### M3: Establish GX impact (depends: M0)
+### M3: Select the implementation candidate (depends: M1, M2)
 
-Parallel with M1 and M2; owns GX worker and game-thread wait correlation.
+- [ ] M3-T01: Rank D1–D3 by exclusive cost, removable work, safety, and expected player-facing gain.
+- [ ] M3-T02: If none qualifies, price a complete GroundCross-family replacement against its measured ceiling and PR #436.
+- [ ] M3-T03: Freeze one candidate contract and its focused correctness/activation tests.
 
-- [ ] M3-T01: Correlate conversion symbols, draw volume, worker CPU, queues, and game-thread waits per frame.
-- [ ] M3-T02: Determine whether conversion blocks frame progress in stable, slow, or worst views.
-- [ ] M3-T03: Select one GX candidate or record that it is not currently frame-limiting.
-
-### M4: Implement the strongest candidate (depends: M1, M2, M3)
+### M4: Implement the strongest candidate (depends: M3)
 
 - [ ] M4-T01: Rank the three tracks and select the strongest safety-bounded candidate.
 - [ ] M4-T02: Implement one default-off isolated change with a fallback and focused contract tests.
@@ -55,5 +53,11 @@ Parallel with M1 and M2; owns GX worker and game-thread wait correlation.
 | Task | Commit / artifact | Command / method | Environment / input | Result |
 | --- | --- | --- | --- | --- |
 | M0-T01 | Profiler prototype [`d1bb41b`](https://github.com/irregularthanis/bluewake/commit/d1bb41b); private `perf.data`/JSON/Markdown | 20 s rendered capture at 99 Hz; 3,195 leaf samples | Steam Deck LCD, Game Mode, fixed worst Outset angle | Process: translated 39.6%, GX/Aurora 15.3%, guest/dispatch 9.1%. Game thread: translated 64.6%, guest/dispatch 13.4%, host 9.1%, native replacements 6.3%. |
+
+Screening evidence: a private 120-second headless diagnostic recorded 861
+samples in `func_802456E0` (7.23% process share). Generated-source and GZLE01
+symbol mapping assigns approximately 1.55% process-wide to the three principal
+GroundCross routines and 3.37% to shared helpers. This informs M1/M2 ordering;
+it does not complete their operation-level attribution or Deck acceptance.
 
 Private profiles, saves, session logs, modules, and AppImages are not published.
