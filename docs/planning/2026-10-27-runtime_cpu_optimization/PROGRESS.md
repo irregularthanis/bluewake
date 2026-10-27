@@ -1,6 +1,6 @@
 # PROGRESS — Steam Deck runtime CPU optimization
 
-Status: M0 complete; M1 instrumentation ready to build and measure
+Status: M0 complete; M1 default-off return candidate ready to build
 
 [Product brief](PRD.md) · [Technical plan](TECH_PLAN.md)
 
@@ -25,7 +25,7 @@ if preserving observed budget/address rejections removes the proposed saving.
 
 - [ ] M1-T01: Measure entry and return readiness checks separately, including calls/frame and exclusive cost.
 - [ ] M1-T02: Record which readiness inputs can change during each eligible callee and which constant addresses are already filtered by generation.
-- [ ] M1-T03: Propose one semantics-preserving specialization/amortization or record a measured no-go.
+- [x] M1-T03: Propose one semantics-preserving specialization/amortization or record a measured no-go.
 
 ### M2: Split FP and gather-pipe helper cost (depends: M0)
 
@@ -63,7 +63,8 @@ Parallel with M1; owns helper-operation attribution only.
 | M0-T02 | Private Deck evidence `/home/deck/bluewake-m0/rendered/{stable,slow,worst}-{1,2,3}` | Three stationary 30 s Game Mode rounds/view; session rate/busy plus `perf stat` | Same running `0.9.0` control; stable, slow and worst Outset camera views | Stable 59.88–59.95, slow 55.00–55.78, worst 49.01–49.70 retraces/s; rendered rate spread 0.12%, 1.42%, 1.41%. |
 | M0-T03 | [`v0.9.0`](https://github.com/chrissotraidis/bluewake/releases/tag/v0.9.0) receipt and this planning trio | Freeze source/pins/options/hashes, fixed-view fields, headless checkpoints, metrics and candidate record | Control AppImage `476a335…`; private state/card and evidence retained on Deck | Control and method frozen; later candidates require isolated source receipts and view-specific improvement beyond observed noise. |
 | M1 setup | [`direct_calls.h`](../../../cmake/composite/direct_calls.h), [`direct_calls.py`](../../../scripts/windows/direct_calls.py), and host reporting in [`main.c`](../../../runtime/host/src/main.c) | Opt-in `BLUEWAKE_DIRECT_CALL_MEASURE=1`; separate entry/return outcomes and expected/diverted returns | Branch remains based on frozen `v0.9.0` control `211abfd` | Source prepared; transformation tests, repository audit and diff check pass. Build and Deck measurements remain open. |
-| M1 preliminary counts | Private Deck evidence `bluewake-m1-direct-calls/`; AppImage SHA-256 `03bb2b60…` | One Game Mode session; 30 s stable/slow/worst captures; cumulative counters emitted at clean exit | PR head `d97adec`; Clang 18; `x86-64-v3`; `BLUEWAKE_DIRECT_CALL_MEASURE=1` | Entry: 2.239B checks, 99.40% allowed. Expected return: 79.23%; diverted return: 20.77%. Reached return checks: 1.750B, 99.79% allowed. Counts are preliminary; exclusive cost and normalized calls/frame remain open. |
+| M1 preliminary counts | Private Deck evidence `bluewake-m1-direct-calls/`; AppImage SHA-256 `03bb2b60…` | One Game Mode session; 30 s stable/slow/worst captures; cumulative counters emitted at clean exit | PR head `d97adec`; Clang 18; `x86-64-v3`; `BLUEWAKE_DIRECT_CALL_MEASURE=1` | Entry: 2.239B checks, 99.40% allowed. Of allowed entries, 78.61% reached the expected return guard, 20.60% diverted and 0.79% was unclassified. Reached return checks: 1.750B, 99.79% allowed. |
+| M1-T03 | [`bw_direct_return_ready`](../../../cmake/composite/direct_calls.h), generated call sites and host activation | Default-off `BLUEWAKE_DIRECT_RETURN_SPECIALIZED=1`; retain mutable-state checks and omit only entry-established invariants | Same PR branch and frozen control ancestry | Candidate and focused source cases prepared; build, compiled tests and A/B remain open. |
 
 Screening evidence: a private 120-second headless diagnostic recorded 861
 samples in `func_802456E0` (7.23% process share). Generated-source and GZLE01

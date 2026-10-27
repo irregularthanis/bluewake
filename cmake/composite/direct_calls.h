@@ -80,10 +80,12 @@ enum {
     BW_DIRECT_RESULT_COUNT,
 };
 extern bool bw_direct_measure;
+extern bool bw_direct_return_specialized;
 extern unsigned long long bw_direct_measure_results[BW_DIRECT_PHASE_COUNT][BW_DIRECT_RESULT_COUNT];
 extern unsigned long long bw_direct_measure_return_match;
 extern unsigned long long bw_direct_measure_return_mismatch;
 void bluewake_composite_direct_call_measure(bool enabled);
+void bluewake_composite_direct_return_specialized(bool enabled);
 void bluewake_composite_direct_call_measure_counts(unsigned long long* results,
                                                    unsigned long long* return_match,
                                                    unsigned long long* return_mismatch);
@@ -155,6 +157,58 @@ static inline bool bw_direct_call_ready_measured(const CPUState* cpu, u32 addres
     }
     if (phase < BW_DIRECT_PHASE_COUNT)
         ++bw_direct_measure_results[phase][result];
+    return allowed;
+}
+
+/* A successful entry already proved that direct calls are enabled, the CPU
+ * and host callback exist, and depth is below the limit. A completed direct
+ * call restores its prior depth. The state a callee can change still has to be
+ * checked at the return boundary. */
+static inline bool bw_direct_return_ready(const CPUState* cpu, u32 address) {
+    if (cpu->exception != 0u || (cpu->cycle_budget > 0 && cpu->downcount <= -cpu->cycle_budget))
+        return false;
+    if (!bw_host_quiet(cpu))
+        return false;
+    const volatile BwHostSkipFast* fast = bw_host_skip_fast;
+    if (fast != NULL && fast->simple) {
+        const bool allowed = address != fast->single[0] && address != fast->single[1] &&
+                             address - fast->range_first[0] > fast->range_span[0] &&
+                             address - fast->range_first[1] > fast->range_span[1];
+        if (__builtin_expect(bw_host_skip_verify, 0))
+            bw_host_skip_verify_check(cpu, address, allowed);
+        return allowed;
+    }
+    return bw_host_can_skip(bw_host_can_skip_user, cpu, address);
+}
+
+static inline bool bw_direct_return_ready_measured(const CPUState* cpu, u32 address) {
+    if (__builtin_expect(!bw_direct_return_specialized, 1))
+        return bw_direct_call_ready_measured(cpu, address, BW_DIRECT_PHASE_RETURN);
+    if (__builtin_expect(!bw_direct_measure, 1))
+        return bw_direct_return_ready(cpu, address);
+    unsigned result;
+    bool allowed = false;
+    if (cpu->exception != 0u) {
+        result = BW_DIRECT_RESULT_EXCEPTION;
+    } else if (cpu->cycle_budget > 0 && cpu->downcount <= -cpu->cycle_budget) {
+        result = BW_DIRECT_RESULT_BUDGET;
+    } else if (!bw_host_quiet(cpu)) {
+        result = BW_DIRECT_RESULT_HOST_BUSY;
+    } else {
+        const volatile BwHostSkipFast* fast = bw_host_skip_fast;
+        if (fast != NULL && fast->simple) {
+            allowed = address != fast->single[0] && address != fast->single[1] &&
+                      address - fast->range_first[0] > fast->range_span[0] &&
+                      address - fast->range_first[1] > fast->range_span[1];
+            if (__builtin_expect(bw_host_skip_verify, 0))
+                bw_host_skip_verify_check(cpu, address, allowed);
+            result = allowed ? BW_DIRECT_RESULT_ALLOWED : BW_DIRECT_RESULT_FAST_DENIED;
+        } else {
+            allowed = bw_host_can_skip(bw_host_can_skip_user, cpu, address);
+            result = allowed ? BW_DIRECT_RESULT_ALLOWED : BW_DIRECT_RESULT_SLOW_DENIED;
+        }
+    }
+    ++bw_direct_measure_results[BW_DIRECT_PHASE_RETURN][result];
     return allowed;
 }
 

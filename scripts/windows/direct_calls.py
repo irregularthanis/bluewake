@@ -186,7 +186,7 @@ def transform(text, own_start, starts, index_of, watched, natives=()):
                 f"            if (bw_direct_call_ready_measured(ctx, 0x{run:08X}u, BW_DIRECT_PHASE_ENTRY)) {{\n"
                 + enter + translated +
                 f"                if (bw_direct_return_matches(ctx->pc, 0x{m.group(3)}u) &&\n"
-                f"                    bw_direct_call_ready_measured(ctx, 0x{ret:08X}u, BW_DIRECT_PHASE_RETURN))\n"
+                f"                    bw_direct_return_ready_measured(ctx, 0x{ret:08X}u))\n"
                 f"                    goto label_{m.group(3)};\n"
                 "            }\n"
                 "            return;\n"
@@ -249,7 +249,7 @@ def transform_indirect(text, watched):
                 "            if (bw_direct_call_ready_measured(ctx, target, BW_DIRECT_PHASE_ENTRY) &&\n"
                 "                bw_call_translated(ctx, target) &&\n"
                 f"                bw_direct_return_matches(ctx->pc, 0x{m.group(2)}u) &&\n"
-                f"                bw_direct_call_ready_measured(ctx, 0x{ret:08X}u, BW_DIRECT_PHASE_RETURN))\n"
+                f"                bw_direct_return_ready_measured(ctx, 0x{ret:08X}u))\n"
                 f"                goto label_{m.group(2)};\n"
                 "            return;\n"
                 "        }\n"

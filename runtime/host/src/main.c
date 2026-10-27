@@ -2101,6 +2101,7 @@ static BwHostSkipFast g_skip_fast = {0u, {0u, 0u}, {0xFFFFFFFFu, 0xFFFFFFFFu}, {
 static bool g_skip_fast_on;
 static bool g_skip_verify; // BLUEWAKE_DIRECT_SKIP_VERIFY=1: the counts at exit
 static bool g_direct_call_measure; // BLUEWAKE_DIRECT_CALL_MEASURE=1: guard outcomes at exit
+static bool g_direct_return_specialized; // BLUEWAKE_DIRECT_RETURN_SPECIALIZED=1: M1 candidate
 static void host_skip_fast_refresh(void) {
     if (!g_skip_fast_on)
         return;
@@ -8294,13 +8295,23 @@ int main(int argc, char** argv) {
                                 direct_call_measure != NULL;
         if (g_direct_call_measure)
             direct_call_measure(true);
+        typedef void (*DirectReturnSpecializedFn)(bool);
+        DirectReturnSpecializedFn direct_return_specialized = (DirectReturnSpecializedFn)
+            dlsym(lib, "bluewake_composite_direct_return_specialized");
+        const char* return_specialized_env = getenv("BLUEWAKE_DIRECT_RETURN_SPECIALIZED");
+        g_direct_return_specialized = enabled && direct_return_specialized != NULL &&
+            return_specialized_env != NULL && strcmp(return_specialized_env, "1") == 0;
+        if (direct_return_specialized != NULL)
+            direct_return_specialized(g_direct_return_specialized);
         typedef int (*EdgeFilterFn)(bool);
         EdgeFilterFn edge_filter = (EdgeFilterFn)
             dlsym(lib, "bluewake_composite_edge_filter");
         if (edge_filter != NULL)
             edge_filter(enabled);
-        fprintf(stderr, "[chassis] direct-calls=%s inline-answer=%s%s\n", enabled ? "on" : "off",
-                g_skip_fast_on ? "on" : "off", g_skip_fast_on && verify ? " (verify)" : "");
+        fprintf(stderr, "[chassis] direct-calls=%s inline-answer=%s%s return-specialized=%s\n",
+                enabled ? "on" : "off", g_skip_fast_on ? "on" : "off",
+                g_skip_fast_on && verify ? " (verify)" : "",
+                g_direct_return_specialized ? "on" : "off");
     }
     {
         typedef int (*NativeJ3DFn)(bool, bool (*)(void*, const CPUState*, u32), void*);

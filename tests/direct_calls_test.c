@@ -118,13 +118,29 @@ int main(void) {
     allow = false;
     assert(!bw_direct_call_ready(&cpu, 0x80009000u));
     allow = true;
+    /* The return specialization retains every predicate that a callee can
+     * change after a successful entry. */
+    bluewake_composite_direct_return_specialized(true);
+    assert(bw_direct_return_ready(&cpu, 0x80009000u));
+    cpu.exception = 1u;
+    assert(!bw_direct_return_ready(&cpu, 0x80009000u));
+    cpu.exception = 0u;
+    cpu.downcount = -20;
+    assert(!bw_direct_return_ready(&cpu, 0x80009000u));
+    cpu.downcount = -19;
+    attention = true;
+    assert(!bw_direct_return_ready(&cpu, 0x80009000u));
+    attention = false;
+    allow = false;
+    assert(!bw_direct_return_ready(&cpu, 0x80009000u));
+    allow = true;
     /* Opt-in measurement classifies each boundary without changing its answer. */
     unsigned long long measured[BW_DIRECT_PHASE_COUNT * BW_DIRECT_RESULT_COUNT] = {0};
     unsigned long long return_match = 0u, return_mismatch = 0u;
     bluewake_composite_direct_call_measure(true);
     assert(bw_direct_call_ready_measured(&cpu, 0x80009000u, BW_DIRECT_PHASE_ENTRY));
     cpu.exception = 1u;
-    assert(!bw_direct_call_ready_measured(&cpu, 0x80005000u, BW_DIRECT_PHASE_RETURN));
+    assert(!bw_direct_return_ready_measured(&cpu, 0x80005000u));
     cpu.exception = 0u;
     assert(bw_direct_return_matches(0x80005000u, 0x80005000u));
     assert(!bw_direct_return_matches(0x80006000u, 0x80005000u));
@@ -133,6 +149,7 @@ int main(void) {
     assert(measured[BW_DIRECT_PHASE_RETURN * BW_DIRECT_RESULT_COUNT + BW_DIRECT_RESULT_EXCEPTION] == 1u);
     assert(return_match == 1u && return_mismatch == 1u);
     bluewake_composite_direct_call_measure(false);
+    bluewake_composite_direct_return_specialized(false);
     /* v3 that fails to enable leaves nothing behind. */
     assert(!bluewake_composite_direct_calls_v3(true, NULL, NULL, NULL, NULL, NULL, NULL, &fast, true));
     assert(bw_host_skip_fast == NULL && !bw_host_skip_verify);

@@ -141,17 +141,19 @@ explanation for the full Steam Deck slowdown.
 | Reached return guards | 1,749,593,903 | The narrower specialization applies frequently |
 | Actual return rejections | 3,630,350 | Required semantics cannot be removed wholesale |
 
-The next candidate is a return-specific predicate. A successful entry already
+The implemented candidate is a return-specific predicate. A successful entry already
 establishes a non-null CPU, enabled direct calls, a host callback and valid
 depth; the call restores its prior depth before the return check. The candidate
-may omit only those proven entry invariants. It must retain exception, budget,
+omits only those entry invariants. It retains exception, budget,
 interrupt/host state and address-filter checks, which rejected real returns in
-this run.
+this run. It is default off and selected with
+`BLUEWAKE_DIRECT_RETURN_SPECIALIZED=1`, allowing control/candidate runs from
+one source-matched AppImage.
 
 | Next step | Evidence required | Stop/continue rule |
 | --- | --- | --- |
-| Inspect generated/native code | Exact instructions removed from the return path; proof for every omitted input | Stop if the invariant is not valid across all rewritten calls |
-| Add focused contract tests | Original and specialized predicates agree for exception, budget, interrupt, address and diverted-return cases | Stop on any disagreement |
+| Inspect generated/native code | Exact instructions removed from the return path; proof for every omitted input | Implemented; compiled-code inspection remains open |
+| Add focused contract tests | Original and specialized predicates agree for exception, budget, interrupt, address and diverted-return cases | Source cases added; compiled test remains open |
 | Headless source-matched A/B | Five scenes, ABBA ordering, identical checkpoints | Stop if aggregate gain is ≤0.2% or inconsistent across runs |
 | Rendered fixed-view A/B | Stable/slow/worst views against M0 noise | Continue to full qualification only with a repeatable positive signal |
 
