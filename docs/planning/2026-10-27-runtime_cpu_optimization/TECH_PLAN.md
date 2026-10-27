@@ -41,7 +41,23 @@ ten measured runs per alias, ABBA interleaving, five scenes and 31 checkpoints.
 Every checkpoint matched. Scene deltas ranged from -0.07% to +0.17%, while the
 per-run geometric-mean median changed by -0.00%. For this workload, changes
 below 0.2% are therefore noise unless a later source-matched A/A shows a wider
-band. Rendered stable/slow/worst noise remains a separate M0 gate.
+band. Rendered stable/slow/worst noise was measured separately below.
+
+Rendered Game Mode measurements used one continuous `0.9.0` process, stationary
+camera views, and three 30-second rounds per view. Each round records session
+rate/busy samples plus `perf stat` task-clock, cycles, instructions, branches
+and cache events:
+
+| View | Retraces/s across rounds | Busy | IPC | Observed rate spread |
+| --- | --- | --- | --- | ---: |
+| Stable | 59.88, 59.92, 59.95 | 87.2–89.1% | 1.796–1.830 | 0.12% |
+| Slow | 55.00, 55.40, 55.78 | 97.0–97.1% | 1.833–1.873 | 1.42% |
+| Worst | 49.01, 49.25, 49.70 | 96.9–97.3% | 1.955–1.964 | 1.41% |
+
+Candidate fixed-view results must exceed the corresponding view's observed
+spread consistently; a single faster round is insufficient. The headless tour
+and checkpoint gate remain required because manual camera placement alone is
+not deterministic correctness evidence.
 
 ## Investigation flow
 
