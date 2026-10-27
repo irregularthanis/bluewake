@@ -46,7 +46,8 @@ def classify(dso: str, symbol: str) -> str:
         return "Native replacements"
     if any(token in symbol_lower for token in (
         "gxcore::", "aurora_recomp::", "retailgx", "gxruntime", "aurora_backend_gx",
-        "host_graphics_", "dol_platform_gx_", "gx_write", "gx_flush",
+        "host_graphics_", "dol_platform_gx_", "dol_gx_recomp", "gx_write", "gx_flush",
+        "build_draw_plan_into", "fill_render_packet", "submit_packet", "emit_new_packets",
     )):
         return "GX and Aurora"
     if any(token in value for token in (
@@ -61,7 +62,7 @@ def classify(dso: str, symbol: str) -> str:
         return "Compatibility services"
     if any(token in symbol_lower for token in (
         "chassis_dispatch", "guest_alias", "guest_memory", "mem_read", "mem_write",
-        "direct_can_skip", "requires_full", "cpu_state", "dispatch_loop",
+        "direct_can_skip", "direct_call", "requires_full", "cpu_state", "dispatch_loop",
     )):
         return "Guest state and dispatch"
     if any(token in symbol_lower for token in (
@@ -92,20 +93,50 @@ def parse_line(line: str) -> Sample | None:
     return Sample(match.group(1), int(match.group(2)), match.group(4), symbol)
 
 
+def parse_samples(lines: list[str]) -> tuple[list[Sample], int]:
+    """Accept one-line perf output and the Deck's header-plus-callchain form."""
+    samples: list[Sample] = []
+    pending: tuple[str, int] | None = None
+    in_callchain = False
+    malformed = 0
+    for line in lines:
+        if not line.strip():
+            pending = None
+            in_callchain = False
+            continue
+        if line.lstrip().startswith("#"):
+            continue
+        header = re.match(r"^\s*(.+?)\s+(\d+)\s*$", line)
+        if header:
+            pending = (header.group(1), int(header.group(2)))
+            in_callchain = True
+            continue
+        if pending is not None:
+            frame = re.match(r"^\s*(?:0x)?[0-9a-fA-F]+\s+(.+?)\s+\((.*)\)\s*$", line)
+            if frame:
+                samples.append(Sample(pending[0], pending[1], frame.group(2), frame.group(1)))
+                pending = None
+                continue
+            malformed += 1
+            pending = None
+        if in_callchain:
+            continue
+        sample = parse_line(line)
+        if sample is None:
+            malformed += 1
+        else:
+            samples.append(sample)
+    return samples, malformed
+
+
 def collect(lines: list[str]) -> dict:
     domain_counts: collections.Counter[str] = collections.Counter()
     thread_counts: dict[tuple[str, int], collections.Counter[str]] = {}
     symbol_counts: dict[str, collections.Counter[str]] = {
         domain: collections.Counter() for domain in DOMAINS
     }
-    malformed = 0
-    for line in lines:
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        sample = parse_line(line)
-        if sample is None:
-            malformed += 1
-            continue
+    samples, malformed = parse_samples(lines)
+    for sample in samples:
         domain = classify(sample.dso, sample.symbol)
         domain_counts[domain] += 1
         thread_counts.setdefault((sample.command, sample.tid), collections.Counter())[domain] += 1

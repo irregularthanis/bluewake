@@ -48,6 +48,21 @@ class PerfDomainsTest(unittest.TestCase):
         self.assertEqual(result["threads"][0]["tid"], 20)
         self.assertEqual(result["threads"][0]["domains"][0]["percent"], 100.0)
 
+    def test_parses_deck_multiline_callchains_as_one_sample_each(self):
+        result = MODULE.collect([
+            "bluewake   44 ",
+            "    7f001234 func_802456E0 (/tmp/gGZLE01_recomp.so)",
+            "    7f005678 caller (/tmp/gGZLE01_recomp.so)",
+            "",
+            "GX worker   45 ",
+            "    7f009abc gxcore::GxCoreState::apply() (/tmp/bluewake)",
+            "    7f00def0 caller (/tmp/bluewake)",
+            "",
+        ])
+        self.assertEqual(result["total_samples"], 2)
+        self.assertEqual(result["unparsed_lines"], 0)
+        self.assertEqual(result["threads"][0]["tid"], 44)
+
 
 if __name__ == "__main__":
     unittest.main()
