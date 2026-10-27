@@ -64,9 +64,15 @@ M2-T03 and M2-T04 remain open: FPS was not captured, and eviction/shutdown plus 
 
 Parallel with M1 and M2; owns state generations and cache-hit comparison.
 
-- [ ] M3-T01: Measure current cache hit/miss rates and comparison cost.
+- [x] M3-T01: Measure current cache hit/miss rates and comparison cost.
 - [ ] M3-T02: Replace large hot-path comparisons with verified generation identities.
 - [ ] M3-T03: Run GXCore equivalence tests and matched Deck profiling.
+
+| Candidate | Validation | Result | Decision |
+| --- | --- | --- | --- |
+| Compact keys for the derived-state cache (`DerivedCache`, `gxcore.cpp`) | `[gx-derived]` counters over 400-game-frame windows; ETW CPU sampling resolved to source lines; Windows desktop, all cores and 2/4-core affinity | 68% hits in the hilltop grass, 35% at the pier. Texture key and hit check 0.13% of GX-worker samples; the whole cache under 1% | Proposed no-go as written: nothing left to cut measurably (owner's call) |
+
+The derived cache already works: its version check and `memcmp`s are about a tenth of a percent of the GX worker. Where compact state identities could still pay is the copying of register snapshots into every packet (`emit_new_packets`, the render sink: about 18% of GX-worker samples together), not the cache's comparison. The GX worker's largest costs in the same profile are the rest of `build_draw_plan_into` (22%, the M2 area), `RetailGxFrontend::parse_stream` (12%) and guest address resolution (5.5%). These are desktop numbers; the Deck matched qualification is unchanged.
 
 ### M4: Matrix-varying instancing decision (depends: M1, M2)
 
@@ -100,5 +106,8 @@ Parallel with M1 and M2; owns state generations and cache-hit comparison.
 | M2-B4-T01 / T02 | [RecompCore `b8f9e2f`](https://github.com/irregularthanis/RecompCore/commit/b8f9e2f3ffdf0e6b87dc60b02bdf56b9f6a4728f) | Reorganize 256 entries into 128 two-way sets; add same-set coexistence case; build `gxcore_tests`; run focused CTest | GCC 16 isolated GXRuntime build | PASS: two colliding identities coexist; existing payload mutation, dirty-epoch invalidation and safe-bypass checks pass. Deck build pending. |
 | M2-B4-T03 / T04 | BlueWake `a4fd684`, RecompCore `b8f9e2f`, AppImage `485e1df3...5a2b`; private log `54f64b9a...ed8a` | Stable/slow and two worst-view 15-second samples; flush aggregate counters on exit | Steam Deck LCD, Game Mode; cache/diagnostics on, pacing off | INCONCLUSIVE: 90.870% eligible hit rate; worst GX-worker mean 607; mixed view results. Old conflict metric did not distinguish invalidation from address collision. |
 | M2-B4-T05 | [RecompCore `79282e7`](https://github.com/irregularthanis/RecompCore/commit/79282e7bcb30809f113f288731c8e475dcc58c4c) | Restore direct map; add miss classes and four diagnostic shadow layouts; build/run focused `gxcore_tests` | GCC 16 isolated GXRuntime build | PASS: production contract remains direct-mapped; focused mutation, collision and fallback tests pass. Deck build pending. |
+| M3-T01 counters | BlueWake `main` `211abfd`, RecompCore `1446450`, its own training (Clang 22, `x86-64-v3`, Windows) | `DOL_GXCORE_OPT_LOG=1`; two runs of each view from one save state to two retraces, the longer minus the shorter (runs from a state are deterministic) | i5-12600KF, RTX 5070 Ti, Windows 11, D3D12; unpaced, Smooth Motion off, HD look off; Outset hilltop grass (retraces 1600-2400) and the tour's Outset pier (2800-3600) | Hilltop grass: 1,531 draws per game frame, 67.9% derived-cache hits. Pier: 738 draws per game frame, 35.1%. |
+| M3-T01 profile | Same build; `BlueWake.pdb` | WPR CPU sampling (about 8.2 kHz effective, 20 s), `xperf` dumper, samples of the GX worker resolved to source lines with DbgHelp | Same PC; hilltop grass, unpaced, cache on | GX worker 62,523 samples (about 38% of a core). Texture key 0.05%, hit check 0.08%, hit copy and counter replay 0.22%, miss derivation 0.46%, store 0.08%. Rest of `build_draw_plan_into` 21.9%, `parse_stream` 12.3%, render sink `submit_packet` 7.9% and `fill_render_packet` 4.3%, `GxCoreSink::submit_packet` 6.2%, `emit_new_packets` 5.7%, guest address resolution 5.5%. |
+| M3-T01 core budget | Same build | Same view and trace, the process's affinity set to fewer cores | Same PC; unpaced | All cores 56.5 game frames/s; 2 P-cores 55.9; 4 E-cores 30.1; 2 E-cores 28.1, and 27.6 with the HD look, sun shadows and render scale 4. The GX worker's work stayed 0.37-0.42 of the game thread's in every case; the game thread, not the GX worker, set the pace. |
 
 Private logs, saves, translated modules and AppImages are not published.
