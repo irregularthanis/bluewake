@@ -32,7 +32,16 @@
 typedef void (*BwGatherPipeWrite)(u64 value, u8 size);
 extern BwGatherPipeWrite bw_gather_pipe_write;
 
-static inline bool bw_gather_pipe(CPUState* cpu, u32 addr, u32 size) {
+/* A diagnostic build can keep these normally inlined stages as distinct
+ * symbols. This changes code shape and is only for profiler attribution; the
+ * production build remains byte-for-byte on the existing inline path. */
+#if defined(BLUEWAKE_GATHER_PIPE_PROFILE)
+#define BW_GATHER_PIPE_STAGE static __attribute__((noinline))
+#else
+#define BW_GATHER_PIPE_STAGE static inline
+#endif
+
+BW_GATHER_PIPE_STAGE bool bw_gather_pipe(CPUState* cpu, u32 addr, u32 size) {
     /* The mirror bit first: guest RAM stores, which never have it, pay one test. */
     /* Registered storage takes precedence over hardware in the ordinary path. */
     return (addr & 0x40000000u) != 0u && (addr & ~0x1Fu) == 0xCC008000u &&
@@ -46,7 +55,7 @@ static inline bool bw_hardware(u32 addr) {
     return (addr & 0x40000000u) != 0u && (addr & 0xF8000000u) == 0xC8000000u;
 }
 
-static inline void bw_gather_pipe_put(u64 value, u8 size) {
+BW_GATHER_PIPE_STAGE void bw_gather_pipe_put(u64 value, u8 size) {
     if (bw_gather_pipe_bytes == NULL) {
         bw_gather_pipe_write(value, size);
         return;
@@ -76,6 +85,9 @@ static inline void bw_gather_pipe_put(u64 value, u8 size) {
     if (bw_gather_pipe_length >= BW_GATHER_PIPE_BATCH)
         bw_gather_pipe_flush();
 }
+
+
+#undef BW_GATHER_PIPE_STAGE
 
 static __attribute__((noinline)) void bw_mem_write8_slow(CPUState* cpu, u32 addr, u8 value) {
     if (__builtin_expect(bw_hardware(addr), 0)) {

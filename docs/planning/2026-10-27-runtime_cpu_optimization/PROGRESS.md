@@ -1,6 +1,6 @@
 # PROGRESS — Steam Deck runtime CPU optimization
 
-Status: M0 complete; M1 rejected; M2 ready
+Status: M0 complete; M1 rejected; M2 attribution in progress
 
 [Product brief](PRD.md) · [Technical plan](TECH_PLAN.md)
 
@@ -63,6 +63,8 @@ Parallel with M1; owns helper-operation attribution only.
 | M1 setup | [`direct_calls.h`](../../../cmake/composite/direct_calls.h), [`direct_calls.py`](../../../scripts/windows/direct_calls.py), and host reporting in [`main.c`](../../../runtime/host/src/main.c) | Opt-in `BLUEWAKE_DIRECT_CALL_MEASURE=1`; separate entry/return outcomes and expected/diverted returns | Branch remains based on frozen `v0.9.0` control `211abfd` | Source prepared; transformation tests, repository audit and diff check pass. Build and Deck measurements remain open. |
 | M1-T01/T02 | Private Deck evidence `bluewake-m1-direct-calls/`; AppImage SHA-256 `03bb2b60…` | Game Mode stable/slow/worst session; entry/return outcomes at clean exit | PR head `d97adec`; Clang 18; `x86-64-v3`; measurement enabled | 2.239B entry checks, 99.40% allowed; 1.750B reached return checks, 99.79% allowed; 20.60% of allowed entries diverted before that guard. Mutable budget/address state produced real rejections. |
 | M1-T03 | Private Deck evidence `bluewake-m1-return-specialized/headless/bluewake-m1-candidate-vs-bluewake-m1-control-20261027T174009Z`; underlying AppImage `ce0e8bed…` | 10 runs/mode, five-pair ABBA, fixed five-scene tour; same AppImage with candidate env flag toggled | Steam Deck; 5/5 scenes and 31/31 identical checkpoints every run | Candidate regressed every scene by 1.65–2.34%; aggregate -1.88%. Rendered stable/worst neutral; slow -4.15%. Rejected and specialization source removed. |
+| M2 initial attribution | Private Deck evidence `/home/deck/bluewake-m2-attribution/worst-control/`; frozen M0 AppImage `476a335…` | 120 s whole-process `perf` capture at 99 Hz; leaf symbols grouped by helper family | Steam Deck Game Mode; fixed worst Outset view; 18,946 samples; zero lost | FP helpers 0.46%; slow memory helpers 1.48%; combined ceiling 1.94%. Gather stages are inlined, so an attribution-only build is required before selection. |
+| M2 diagnostic setup | `--gather-pipe-profile`; [`gather_pipe.h`](../../../cmake/composite/gather_pipe.h) and [`gather_pipe_batch.h`](../../../cmake/composite/gather_pipe_batch.h) | Preserve validation, packing and drain as distinct symbols only when explicitly requested | Default production build remains inline; diagnostic build changes code shape and cannot be an A/B candidate | Syntax/CLI checks pass. Diagnostic build and same-view Deck capture remain open. |
 
 Screening evidence: a private 120-second headless diagnostic recorded 861
 samples in `func_802456E0` (7.23% process share). Generated-source and GZLE01

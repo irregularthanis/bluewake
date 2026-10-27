@@ -1,6 +1,6 @@
 # TECH_PLAN — Steam Deck runtime CPU optimization
 
-Status: M0 complete; M1 measurement in progress
+Status: M0 complete; M1 rejected; M2 attribution in progress
 
 Control: upstream [`v0.9.0`](https://github.com/chrissotraidis/bluewake/releases/tag/v0.9.0) at [`211abfd`](https://github.com/chrissotraidis/bluewake/commit/211abfdecf13beb5b9f2120459a1a3cde50dd84e). Measurement tooling: [`d1bb41b`](https://github.com/irregularthanis/bluewake/commit/d1bb41b).
 
@@ -187,8 +187,26 @@ than spending more work inside the approximately 0.69% direct-call ceiling.
 | [`inline_fp.h`](../../../cmake/composite/inline_fp.h) | Samples/calls by PowerPC operation and surrounding state work | Preserve results, rounding, conversion and exceptions | One bounded candidate or no-go |
 | [`gather_pipe.h`](../../../cmake/composite/gather_pipe.h) | Split packing, validation, parsing, queueing and waits by thread/frame | Preserve ordering, mutation, interpolation and lifecycle | One bounded candidate or no-go |
 
-M2 runs in parallel with M1, but source changes remain isolated so A/B results
-have one cause. RecompCore changes require a companion PR before a BlueWake pin.
+### Initial worst-view attribution
+
+A 120-second, 99 Hz whole-process `perf` capture used the frozen M0 control at
+the fixed worst Outset view. It recorded 18,946 samples with no lost samples.
+
+| Surface | Process cycles | Largest leaf symbols |
+| --- | ---: | --- |
+| Inline FP helpers | 0.46% | `bw_fp_fma` 0.08%; `bw_fp_ps_madd_op` 0.08%; `bw_fp_fsubs` 0.07% |
+| Slow memory helpers | 1.48% | `bw_mem_write32_slow` 0.68%; `bw_mem_write8_slow` 0.39%; `bw_mem_read32_slow` 0.24% |
+| Combined measured ceiling | 1.94% | Whole-process leaf attribution; not removable work |
+
+FP is below a useful standalone ceiling. Gather validation and packing are
+inlined inside the slow-write symbols, so this capture cannot separate them.
+The attribution-only `--gather-pipe-profile` build keeps validation, packing
+and draining as profiler-visible functions. It changes code shape and is not a
+performance candidate; normal builds retain the existing inline path.
+
+Next, capture the same worst view with that diagnostic build and use call-chain
+and exclusive samples to split validation, packing, flush/drain and fallback.
+Only a stage with material exclusive cost and removable work advances to M3.
 
 ## M3 — Rank and freeze one candidate
 
