@@ -64,7 +64,7 @@ M2-B proved that reuse is frequent: 91.5% of eligible lookups hit and the repeat
 
 M2-B0 then found a narrower avoidable cost. Stable, slow and worst views copied 5.90–12.44 GB of cached vertices, while a worst-view cycles profile attributed 0.49% of the full process to zero-initializing `DrawPlan::vertices`. M2-B3 removed that redundant write, but rotated worst-view samples did not improve: GX-worker CPU rose from a 583.5-jiffy control mean to 626 (+7.3%). The narrow candidate is rejected; broader zero-copy ownership work remains deferred.
 
-Almost every M2-B miss was also a conflict: the worst view recorded 175,261 conflicts from 175,411 misses. M2-B4 therefore tests whether the same 256 entries work better as 128 two-way sets. Capacity and cached data stay constant; only lookup and replacement organization change.
+Almost every M2-B miss was originally labeled a conflict: the worst view recorded 175,261 conflicts from 175,411 misses. A fixed-capacity two-way test did not materially raise hit rate, revealing that the old counter combined true different-address collisions with same-address fingerprint changes. M2-B4 now restores the direct-mapped baseline and attributes those cases separately while shadowing alternative layouts without changing gameplay behavior.
 
 ## Outcomes and acceptance
 

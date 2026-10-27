@@ -1,10 +1,10 @@
 # TECH_PLAN — Repeated GX display-list optimization
 
-Status: M0 complete; narrow M2-B3 rejected; fixed-capacity M2-B4 prepared for qualification
+Status: M0 complete; narrow M2-B3 rejected; M2-B4 attribution prepared after inconclusive layout test
 
 Baseline: [`chrissotraidis/bluewake@b1bf26a`](https://github.com/chrissotraidis/bluewake/commit/b1bf26a0b8a5c1c6e86b9351d658806ff9eb3c1c)
 
-Current integration: this PR pins [`irregularthanis/RecompCore@b8f9e2f`](https://github.com/irregularthanis/RecompCore/commit/b8f9e2f3ffdf0e6b87dc60b02bdf56b9f6a4728f), which keeps M2-B dirty-epoch validation and diagnostics, restores the original vertex initialization after B3's rejection, and tests B4's fixed-capacity two-way layout on BlueWake's current `1446450` runtime base. Both the dependency inventory and the builder's authoritative profile use this revision. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
+Current integration: this PR pins [`irregularthanis/RecompCore@79282e7`](https://github.com/irregularthanis/RecompCore/commit/79282e7bcb30809f113f288731c8e475dcc58c4c), which restores M2-B's direct-mapped behavior and adds diagnostic-only miss classification and shadow layouts on BlueWake's current `1446450` runtime base. Both the dependency inventory and the builder's authoritative profile use this revision. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
 
 [Product brief](PRD.md) · [Tracker](PROGRESS.md)
 
@@ -269,6 +269,10 @@ flowchart LR
 ```
 
 The focused contract adds two identities separated by 128 addresses, proving they map to one set and remain independently reusable. Mutation, unknown-address and dirty-epoch behavior remain in the same `gxcore_tests` contract. The candidate restores B3's initialization placement so the Deck comparison isolates cache layout.
+
+The first two-way Deck session produced a 90.870% eligible hit rate versus 90.8% in the earlier direct-mapped worst-view capture. Stable/slow/worst CPU results were mixed, and the worst-view GX-worker mean was 607 jiffies. This is not a positive layout signal. More importantly, the old `conflicts` counter meant “occupied entry did not match,” which includes same-address fingerprint changes and therefore did not prove address collisions.
+
+[`79282e7`](https://github.com/irregularthanis/RecompCore/commit/79282e7bcb30809f113f288731c8e475dcc58c4c) restores the direct-mapped cache and, only under `DOL_GXCORE_OPT_LOG=1`, separates empty, same-address/new-fingerprint and different-address misses. It also shadows 256/512-entry direct-mapped and 256/512-entry two-way tag caches. Shadow caches never store vertices or affect the production hit decision.
 
 Candidate isolation matters: B1–B4 are alternatives selected by B0, not a bundle. B4 excludes B3 and keeps entry capacity constant. A Deck build must show fewer conflicts and lower GX-worker or frame time; hit-rate improvement alone is insufficient.
 
