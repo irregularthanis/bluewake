@@ -230,14 +230,27 @@ not expected gains. Validation remains the only stage large enough to test.
 
 `bw_gather_pipe()` currently calls `get_ram_ptr()` so a registered guest alias
 at `0xCC008000–0xCC00801F`, or its `0x8C008000` mirror, takes precedence over
-the hardware FIFO. RecompCore can maintain a boolean answering whether any
-registered alias overlaps either window. BlueWake may skip `get_ram_ptr()`
-only while that answer is false.
+the hardware FIFO.
 
-The candidate must update the answer on alias add, remove and clear; retain the
-ordinary resolver when overlap exists; and pass the existing physical/mirrored
-alias-precedence cases in `tests/gather_memory_test.c`. It requires a separate
-RecompCore companion change and a BlueWake pin before source-matched A/B.
+An opt-in counter run covered the stable, slow and worst views. The primary
+linked runtime copy reported 1,384,426,413 resolver calls: 1,352,936,366
+(97.7%) were rejected by global alias bounds. Its 31.49 million remaining calls
+produced 31.49 million hits and about 345.8 million search iterations. A second
+linked runtime copy reported the same bounds-rejection pattern at smaller
+scale. These counters are non-atomic diagnostics, so use them as directional
+evidence rather than exact performance totals.
+
+PR [#480](https://github.com/chrissotraidis/bluewake/pull/480) already depends
+on RecompCore [#45](https://github.com/chrissotraidis/RecompCore/pull/45), which
+adds `ppc_guest_alias_range_overlaps()` and retains the alias generation. The
+candidate can cache whether either FIFO window overlaps an alias, recompute the
+answer only when that generation changes, and call `get_ram_ptr()` only while
+overlap exists. This reuses #480's dependency rather than adding another global.
+
+The candidate must retain the ordinary resolver when overlap exists and pass
+the physical/mirrored alias-precedence cases in `tests/gather_memory_test.c`.
+Final qualification must be based on #480 so the measured GPR improvement and
+the gather candidate are tested together against the relevant future baseline.
 
 ## M3 — Rank and freeze one candidate
 
