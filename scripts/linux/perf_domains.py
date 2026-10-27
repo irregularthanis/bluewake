@@ -48,6 +48,7 @@ def classify(dso: str, symbol: str) -> str:
         "gxcore::", "aurora_recomp::", "retailgx", "gxruntime", "aurora_backend_gx",
         "host_graphics_", "dol_platform_gx_", "dol_gx_recomp", "gx_write", "gx_flush",
         "build_draw_plan_into", "fill_render_packet", "submit_packet", "emit_new_packets",
+        "parse_stream", "core_plan_observer", "handle_draw", "consume_available",
     )):
         return "GX and Aurora"
     if any(token in value for token in (
@@ -61,7 +62,7 @@ def classify(dso: str, symbol: str) -> str:
     )):
         return "Compatibility services"
     if any(token in symbol_lower for token in (
-        "chassis_dispatch", "guest_alias", "guest_memory", "mem_read", "mem_write",
+        "chassis_dispatch", "guest_alias", "guest_memory", "guest_address_resolver", "mem_read", "mem_write",
         "direct_can_skip", "direct_call", "requires_full", "cpu_state", "dispatch_loop",
     )):
         return "Guest state and dispatch"
