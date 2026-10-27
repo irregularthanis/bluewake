@@ -2,7 +2,7 @@
 
 Status: Draft
 
-Sources: upstream [`a773185`](https://github.com/chrissotraidis/bluewake/commit/a7731853c197cc9763a86d62e731d65ca0b25556); measured profile from prototype [`d1bb41b`](https://github.com/irregularthanis/bluewake/commit/d1bb41b)
+Control: upstream [`v0.9.0`](https://github.com/chrissotraidis/bluewake/releases/tag/v0.9.0) at [`211abfd`](https://github.com/chrissotraidis/bluewake/commit/211abfdecf13beb5b9f2120459a1a3cde50dd84e). Measurement tooling: [`d1bb41b`](https://github.com/irregularthanis/bluewake/commit/d1bb41b); it does not replace the control application source.
 
 Scope: investigate and optimize shared translated-code costs identified in a rendered Steam Deck profile. Building a general-purpose profiler and repeating rejected narrow native hooks are excluded; existing profiling tools remain measurement infrastructure.
 
@@ -63,5 +63,10 @@ flowchart TD
 | Performance | Interleaved A/A and A/B show a repeatable improvement in game-thread CPU, frame time, or game speed beyond noise. |
 | Steam Deck | Stable, slow, and worst fixed views plus the established full-scene procedure are completed when the fixed-view gate is positive. |
 | Isolation | One hypothesis changes per candidate; build source, dependency revisions, options, and AppImage hashes are recorded. |
+
+Every candidate is compared with the frozen `0.9.0` control unless its source
+dependency requires a new source-matched control. Tooling-only profiler changes
+may be applied outside the application binary, but they must not silently alter
+the measured runtime.
 
 Private saves, raw profiles, game modules, and AppImages remain local. This plan does not promise that every measured surface will produce an optimization.

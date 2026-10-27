@@ -2,7 +2,7 @@
 
 Status: Planning only
 
-Sources: upstream [`a773185`](https://github.com/chrissotraidis/bluewake/commit/a7731853c197cc9763a86d62e731d65ca0b25556); measured profile from [`d1bb41b`](https://github.com/irregularthanis/bluewake/commit/d1bb41b)
+Control source: upstream [`v0.9.0`](https://github.com/chrissotraidis/bluewake/releases/tag/v0.9.0) at [`211abfd`](https://github.com/chrissotraidis/bluewake/commit/211abfdecf13beb5b9f2120459a1a3cde50dd84e). Measurement tooling: [`d1bb41b`](https://github.com/irregularthanis/bluewake/commit/d1bb41b).
 
 [Product brief](PRD.md) · [Tracker](PROGRESS.md)
 
@@ -16,6 +16,25 @@ Sources: upstream [`a773185`](https://github.com/chrissotraidis/bluewake/commit/
 - [`direct_calls.py`](../../../scripts/windows/direct_calls.py) already rewrites eligible constant and indirect guest calls. [`bw_direct_call_ready`](../../../cmake/composite/direct_calls.h) checks exception/budget state, interrupt state, depth and host observation at entry and return; the plan must measure those existing checks before proposing a change.
 - Compatibility services account for 0.1% of whole-process samples and are not a current candidate.
 - [`profile_deck.sh`](../../../scripts/linux/profile_deck.sh), [`bench_tour.py`](../../../scripts/bench_tour.py), session timing, and guest checkpoints already provide the measurement layers described in the [performance workflow](../../performance/Overview.md#performance-workflow).
+
+## M0 control receipt
+
+| Field | Frozen control |
+| --- | --- |
+| Application source | Upstream tag `v0.9.0`, commit `211abfdecf13beb5b9f2120459a1a3cde50dd84e`, clean checkout |
+| RecompCore | `1446450c79046bd34e43abadc27522eeab768a6e` from the release lock |
+| DolRecomp | `b8b534591cba8ca7cd43943a655ee6e2591cf5de` from the release lock |
+| Toolchain / target | Ubuntu Clang 18.1.3, `x86-64-v3`, reproducible Linux container |
+| Production options | Prepared/fixed CPU/fixed MEM1, inline FP/GPR, gather pipe, direct calls, native J3D/vector/math/skin/game-math, lean blocks, local PGO |
+| AppImage | Private `BlueWake-main-090-x86_64.AppImage`; SHA-256 `476a335f0cf6ec35a4070850de5a17e5c8d45441a60638603fc3e6e7e8d4be48` |
+| Module | SHA-256 `7b094be4e42b62c3d59db293ec364f71bcbca299e23d81859a258d992b519398` |
+| Training profile | SHA-256 `a160ddf641108d1f56c994f6739ec83df0cff44d6bb20da6a1d6f9a0ebd77535` |
+
+The retained private artifact is
+`build/artifacts/main-090/211abfdecf13/BuilderProvenance.json` in the local
+workspace; it is intentionally not a repository link. M0 A/A
+uses this exact AppImage for every round; candidate profiling tools must attach
+to it without rebuilding or changing its runtime source.
 
 ## Investigation flow
 
