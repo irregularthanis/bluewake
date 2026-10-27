@@ -123,6 +123,19 @@ return address. `BLUEWAKE_DIRECT_CALL_MEASURE=1` enables counters for unavailabl
 state, depth, exception, budget, host activity, fast/slow rejection and success.
 The normal path continues to call the original predicate and emits no report.
 
+### Initial M1 measurement
+
+One Game Mode session covered startup plus stable, slow and worst Outset views.
+It recorded 2,239,201,382 entry checks: 99.40% passed, 0.43% were rejected by
+the fast address filter, 0.15% by the cycle budget and 0.02% by host activity.
+Of the accepted entries, 79.23% returned to the expected continuation and
+20.77% diverted elsewhere. The 1,749,593,903 reached return checks passed
+99.79%; budget and fast-filter rejection accounted for the remaining 0.21%.
+
+These cumulative counts identify where the path exits, but do not yet measure
+exclusive guard cost or calls per rendered frame. M1-T01 therefore remains
+open pending source-matched cost attribution and normalized runs.
+
 ## Candidate contract
 
 Every proposal adds a short record before implementation:
