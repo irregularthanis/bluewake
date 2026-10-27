@@ -116,6 +116,13 @@ specialized path may reuse only facts proven unchanged; otherwise the second
 check remains. Constant-target classification must come from the builder's
 watch list, while mutable host flags remain runtime inputs.
 
+The M1 diagnostic is implemented in this PR. Generated direct calls use
+[`bw_direct_call_ready_measured`](../../../cmake/composite/direct_calls.h) for
+entry and return checks and record whether the callee reached its expected
+return address. `BLUEWAKE_DIRECT_CALL_MEASURE=1` enables counters for unavailable
+state, depth, exception, budget, host activity, fast/slow rejection and success.
+The normal path continues to call the original predicate and emits no report.
+
 ## Candidate contract
 
 Every proposal adds a short record before implementation:
