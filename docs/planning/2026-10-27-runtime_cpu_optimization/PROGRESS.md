@@ -54,6 +54,7 @@ Parallel with M1; owns helper-operation attribution only.
 | --- | --- | --- | --- | --- |
 | M0-T01 | Profiler prototype [`d1bb41b`](https://github.com/irregularthanis/bluewake/commit/d1bb41b); private `perf.data`/JSON/Markdown | 20 s rendered capture at 99 Hz; 3,195 leaf samples | Steam Deck LCD, Game Mode, fixed worst Outset angle | Process: translated 39.6%, GX/Aurora 15.3%, guest/dispatch 9.1%. Game thread: translated 64.6%, guest/dispatch 13.4%, host 9.1%, native replacements 6.3%. |
 | M0 control receipt | Upstream [`v0.9.0`](https://github.com/chrissotraidis/bluewake/releases/tag/v0.9.0) `211abfd`; private provenance and AppImage | Verify clean checkout, release dependency lock, provenance fields and SHA-256 | Clang 18.1.3, `x86-64-v3`, production options and local PGO | AppImage `476a335…`; module `7b094be…`; source clean. Ready for same-build Deck A/A. |
+| M0-T02 (headless portion) | Private Deck evidence `bluewake-m0-control-a-vs-bluewake-m0-control-b-20261027T123601Z` | Ten runs/alias, five-pair ABBA tour; identical AppImage SHA-256 `476a335…` | Steam Deck; shared fixed state; five headless scenes | 5/5 scenes and 31/31 identical checkpoints every run; scene noise -0.07% to +0.17%; geometric-mean drift -0.00%. Rendered fixed views remain open. |
 
 Screening evidence: a private 120-second headless diagnostic recorded 861
 samples in `func_802456E0` (7.23% process share). Generated-source and GZLE01

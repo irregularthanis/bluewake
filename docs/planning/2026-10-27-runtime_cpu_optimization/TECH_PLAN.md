@@ -36,6 +36,13 @@ workspace; it is intentionally not a repository link. M0 A/A
 uses this exact AppImage for every round; candidate profiling tools must attach
 to it without rebuilding or changing its runtime source.
 
+The completed headless A/A tour used two aliases of that identical AppImage,
+ten measured runs per alias, ABBA interleaving, five scenes and 31 checkpoints.
+Every checkpoint matched. Scene deltas ranged from -0.07% to +0.17%, while the
+per-run geometric-mean median changed by -0.00%. For this workload, changes
+below 0.2% are therefore noise unless a later source-matched A/A shows a wider
+band. Rendered stable/slow/worst noise remains a separate M0 gate.
+
 ## Investigation flow
 
 ```mermaid
