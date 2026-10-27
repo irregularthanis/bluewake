@@ -64,7 +64,7 @@ M2-B proved that reuse is frequent: 91.5% of eligible lookups hit and the repeat
 
 M2-B0 then found a narrower avoidable cost. Stable, slow and worst views copied 5.90–12.44 GB of cached vertices, while a worst-view cycles profile attributed 0.49% of the full process to zero-initializing `DrawPlan::vertices`. M2-B3 removed that redundant write, but rotated worst-view samples did not improve: GX-worker CPU rose from a 583.5-jiffy control mean to 626 (+7.3%). The narrow candidate is rejected; broader zero-copy ownership work remains deferred.
 
-Almost every M2-B miss was originally labeled a conflict: the worst view recorded 175,261 conflicts from 175,411 misses. A fixed-capacity two-way test did not establish a CPU improvement, so M2-B4 restored the direct-mapped baseline and shadowed alternative layouts. Three Deck sessions then classified every occupied-entry miss as a different-address collision and none as a same-address fingerprint change. The 512-entry two-way shadow reached 94.5–97.2% hits and is the next isolated production candidate; it still requires matched CPU and frame-time qualification.
+Almost every M2-B miss was originally labeled a conflict: the worst view recorded 175,261 conflicts from 175,411 misses. M2-B4 restored the direct-mapped baseline and shadowed alternative layouts, confirming that every occupied-entry miss was a different-address collision. Although the 512-entry two-way shadow reached 94.5–97.2% hits, its production candidate changed process and GX-worker CPU by less than 3% in matched stable, slow and worst views. The differences were inconsistent and within fixed-view noise, so the larger layout is not retained as a performance improvement.
 
 ## Outcomes and acceptance
 

@@ -1,10 +1,10 @@
 # TECH_PLAN — Repeated GX display-list optimization
 
-Status: M0 complete; narrow M2-B3 rejected; M2-B4 attribution selects two-way 512 for qualification
+Status: M0 complete; narrow M2-B3 and M2-B4 two-way-512 candidates rejected
 
 Baseline: [`chrissotraidis/bluewake@b1bf26a`](https://github.com/chrissotraidis/bluewake/commit/b1bf26a0b8a5c1c6e86b9351d658806ff9eb3c1c)
 
-Current integration: this PR pins [`irregularthanis/RecompCore@892f2fa`](https://github.com/irregularthanis/RecompCore/commit/892f2faed94da46a0de5c6183370bdc0d78a807c), which makes the selected 256-set, two-way, 512-entry layout the default-off M2-B cache while retaining diagnostic shadow layouts on BlueWake's current `1446450` runtime base. Both the dependency inventory and the builder's authoritative profile use this revision. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
+Current integration: this PR pins [`irregularthanis/RecompCore@892f2fa`](https://github.com/irregularthanis/RecompCore/commit/892f2faed94da46a0de5c6183370bdc0d78a807c), the measured 256-set, two-way, 512-entry candidate. Both dependency inventories use that revision so the rejected experiment remains reproducible; the direct-256 layout remains the retained performance baseline. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
 
 [Product brief](PRD.md) · [Tracker](PROGRESS.md)
 
@@ -294,6 +294,16 @@ std::array<GeometryCacheEntry,
 ```
 
 Both ways are probed before selecting an empty slot or the set's next victim. A hit marks the other way as the next victim; a full-set miss replaces that victim. The focused contract proves two colliding identities coexist, a third causes one deterministic eviction, and the most recently used identity remains reusable. Existing payload mutation, dirty-epoch invalidation and untracked-memory fallback remain unchanged.
+
+The production A/B used separate Game Mode launches with cache enabled, diagnostics and interpolation pacing disabled, and stationary 15-second windows at the same three Outset views. Candidate is two-way-512; control is direct-256:
+
+| View | Process CPU | Game thread | Primary GX | Secondary GX |
+| --- | ---: | ---: | ---: | ---: |
+| Stable | 1,879 vs 1,878 (+0.1%) | 1,404 vs 1,393 (+0.8%) | 358 vs 365 (-1.9%) | 95 vs 97 (-2.1%) |
+| Slow | 2,052 vs 2,060 (-0.4%) | 1,480 vs 1,476 (+0.3%) | 448 vs 460 (-2.6%) | 100 vs 101 (-1.0%) |
+| Worst | 2,238 vs 2,224 (+0.6%) | 1,483 vs 1,477 (+0.4%) | 620 vs 615 (+0.8%) | 111 vs 110 (+0.9%) |
+
+Values are CPU jiffies accumulated during each window; percentages compare candidate with control. The direction changes by view and every process/game-thread delta is below 1%. Fewer collisions therefore did not produce a measurable end-to-end CPU improvement. M2-B4 stops at the fixed-view gate without a full tour; direct-256 remains the baseline.
 
 Candidate isolation matters: B1–B4 are alternatives selected by B0, not a bundle. B4 excludes B3. Its first experiment held entry capacity constant; the selected follow-up deliberately tests both capacity and associativity because the same-session shadow data ranks it above either change alone.
 
