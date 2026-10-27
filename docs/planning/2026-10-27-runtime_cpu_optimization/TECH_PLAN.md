@@ -126,41 +126,59 @@ included startup and stable/slow/worst Outset views, so counts are cumulative.
 | 57.33% of return rejections are budget; 42.67% are fast-address | Any specialization must preserve both invalidation sources | Map which callees can change each input |
 | No slow-path rejection occurred | This run used the production inline fast answer | Do not generalize to stage-select/diagnostic modes |
 
-### M1 pursuit decision
+### Bounded M1 candidate
 
-**Continue for one bounded return-guard experiment, then either retain it or
-close M1.** This is a high-frequency, low-ceiling optimization—not a likely
-explanation for the full Steam Deck slowdown.
+The experiment tested a default-off return-specific predicate. A successful
+entry establishes a non-null CPU, enabled direct calls, a host callback and
+valid depth; the direct call restores its prior depth. The candidate omitted
+only those checks and retained exception, budget, interrupt/host state,
+address filtering and expected-return control flow.
 
 | Decision input | Value | Meaning |
 | --- | ---: | --- |
 | Reached guards | 3,988,795,285 | Entry plus return checks during the session |
 | Session duration | 680.8 s | First to last recorded performance sample |
-| Approximate guard rate | 5.86 million/s | Small per-check savings can accumulate |
-| Prior direct-call helper attribution | ~0.69% process-wide | Likely gain ceiling is modest |
+| Approximate guard rate | 5.86 million/s | Enough frequency to justify one direct experiment |
+| Prior direct-call helper attribution | ~0.69% process-wide | Expected gain ceiling was modest |
 | Reached return guards | 1,749,593,903 | The narrower specialization applies frequently |
 | Actual return rejections | 3,630,350 | Required semantics cannot be removed wholesale |
 
-The next candidate is a return-specific predicate. A successful entry already
-establishes a non-null CPU, enabled direct calls, a host callback and valid
-depth; the call restores its prior depth before the return check. The candidate
-may omit only those proven entry invariants. It must retain exception, budget,
-interrupt/host state and address-filter checks, which rejected real returns in
-this run.
+### Candidate A/B
 
-| Next step | Evidence required | Stop/continue rule |
-| --- | --- | --- |
-| Inspect generated/native code | Exact instructions removed from the return path; proof for every omitted input | Stop if the invariant is not valid across all rewritten calls |
-| Add focused contract tests | Original and specialized predicates agree for exception, budget, interrupt, address and diverted-return cases | Stop on any disagreement |
-| Headless source-matched A/B | Five scenes, ABBA ordering, identical checkpoints | Stop if aggregate gain is ≤0.2% or inconsistent across runs |
-| Rendered fixed-view A/B | Stable/slow/worst views against M0 noise | Continue to full qualification only with a repeatable positive signal |
+Control and candidate used the same AppImage, SHA-256 `ce0e8bed…`. Wrapper
+hashes differ because one set `BLUEWAKE_DIRECT_RETURN_SPECIALIZED=1`; both
+executed the same underlying artifact. Measurement counters were disabled.
 
-### Remaining M1 gate
+| Headless scene | Control | Candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Outset | 40.517 FPS | 39.831 FPS | -1.69% |
+| Windfall | 42.738 FPS | 41.906 FPS | -1.95% |
+| Dragon Roost Cavern | 58.354 FPS | 56.986 FPS | -2.34% |
+| Forest Haven | 35.150 FPS | 34.569 FPS | -1.65% |
+| Sea by the Fortress | 32.480 FPS | 31.813 FPS | -2.05% |
+| **Geometric-mean median** | — | — | **-1.88%** |
 
-- Normalize checks per retrace in controlled, source-matched runs.
-- Attribute exclusive entry/return guard cost; counts alone do not establish gain.
-- Explain the 0.79% that did not reach return classification.
-- Test the bounded return predicate above; retain it or record a no-go.
+Method: 10 runs/mode, five-pair ABBA ordering, fixed state, 5/5 scenes and
+31/31 identical checkpoints on every run.
+
+| Rendered view | Control | Candidate | Delta | M0 noise |
+| --- | ---: | ---: | ---: | ---: |
+| Stable | 59.92 | 59.91 | -0.02% | 0.12% |
+| Slow | 56.08 | 53.75 | -4.15% | 1.42% |
+| Worst | 49.43 | 49.29 | -0.28% | 1.41% |
+
+### M1 decision — reject
+
+- The candidate missed the `>+0.2%` headless gate in every scene.
+- The consistent `-1.88%` aggregate regression is larger than M0 headless noise.
+- Identical checkpoints support correctness but do not offset the regression.
+- Stable/worst rendered results were neutral; slow regressed beyond its noise band.
+- The runtime specialization may add hot-path branching/code-layout cost; the
+  experiment establishes the net regression, not its instruction-level cause.
+
+The specialization code is removed. The opt-in counters remain available as
+measurement tooling. M1 is closed as a measured no-go; proceed to M2 rather
+than spending more work inside the approximately 0.69% direct-call ceiling.
 
 ## M2 — Split FP and gather-pipe costs
 

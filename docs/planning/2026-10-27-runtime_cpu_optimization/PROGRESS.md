@@ -1,6 +1,6 @@
 # PROGRESS — Steam Deck runtime CPU optimization
 
-Status: M0 complete; M1 instrumentation ready to build and measure
+Status: M0 complete; M1 rejected; M2 ready
 
 [Product brief](PRD.md) · [Technical plan](TECH_PLAN.md)
 
@@ -18,14 +18,12 @@ Architecture: [performance workflow](../../performance/Overview.md#performance-w
 
 Parallel with M2; owns direct-call generator and readiness-path analysis.
 
-Decision: pursue one bounded return-guard specialization. The measured rate is
-5.86 million reached guards/s, but prior attribution limits the likely gain to
-about 0.69% process-wide. Reject it if source-matched headless A/B is ≤0.2% or
-if preserving observed budget/address rejections removes the proposed saving.
+Decision: rejected. A bounded return specialization regressed every automated
+scene and changed the geometric-mean median by -1.88%.
 
-- [ ] M1-T01: Measure entry and return readiness checks separately, including calls/frame and exclusive cost.
-- [ ] M1-T02: Record which readiness inputs can change during each eligible callee and which constant addresses are already filtered by generation.
-- [ ] M1-T03: Propose one semantics-preserving specialization/amortization or record a measured no-go.
+- [x] M1-T01: Measure entry and return readiness checks separately and run a direct source-matched candidate A/B.
+- [x] M1-T02: Record which readiness inputs remain mutable across an eligible callee and retain their checks.
+- [x] M1-T03: Test one semantics-preserving specialization and record the measured no-go.
 
 ### M2: Split FP and gather-pipe helper cost (depends: M0)
 
@@ -63,7 +61,8 @@ Parallel with M1; owns helper-operation attribution only.
 | M0-T02 | Private Deck evidence `/home/deck/bluewake-m0/rendered/{stable,slow,worst}-{1,2,3}` | Three stationary 30 s Game Mode rounds/view; session rate/busy plus `perf stat` | Same running `0.9.0` control; stable, slow and worst Outset camera views | Stable 59.88–59.95, slow 55.00–55.78, worst 49.01–49.70 retraces/s; rendered rate spread 0.12%, 1.42%, 1.41%. |
 | M0-T03 | [`v0.9.0`](https://github.com/chrissotraidis/bluewake/releases/tag/v0.9.0) receipt and this planning trio | Freeze source/pins/options/hashes, fixed-view fields, headless checkpoints, metrics and candidate record | Control AppImage `476a335…`; private state/card and evidence retained on Deck | Control and method frozen; later candidates require isolated source receipts and view-specific improvement beyond observed noise. |
 | M1 setup | [`direct_calls.h`](../../../cmake/composite/direct_calls.h), [`direct_calls.py`](../../../scripts/windows/direct_calls.py), and host reporting in [`main.c`](../../../runtime/host/src/main.c) | Opt-in `BLUEWAKE_DIRECT_CALL_MEASURE=1`; separate entry/return outcomes and expected/diverted returns | Branch remains based on frozen `v0.9.0` control `211abfd` | Source prepared; transformation tests, repository audit and diff check pass. Build and Deck measurements remain open. |
-| M1 preliminary counts | Private Deck evidence `bluewake-m1-direct-calls/`; AppImage SHA-256 `03bb2b60…` | One Game Mode session; 30 s stable/slow/worst captures; cumulative counters emitted at clean exit | PR head `d97adec`; Clang 18; `x86-64-v3`; `BLUEWAKE_DIRECT_CALL_MEASURE=1` | Entry: 2.239B checks, 99.40% allowed. Expected return: 79.23%; diverted return: 20.77%. Reached return checks: 1.750B, 99.79% allowed. Counts are preliminary; exclusive cost and normalized calls/frame remain open. |
+| M1-T01/T02 | Private Deck evidence `bluewake-m1-direct-calls/`; AppImage SHA-256 `03bb2b60…` | Game Mode stable/slow/worst session; entry/return outcomes at clean exit | PR head `d97adec`; Clang 18; `x86-64-v3`; measurement enabled | 2.239B entry checks, 99.40% allowed; 1.750B reached return checks, 99.79% allowed; 20.60% of allowed entries diverted before that guard. Mutable budget/address state produced real rejections. |
+| M1-T03 | Private Deck evidence `bluewake-m1-return-specialized/headless/bluewake-m1-candidate-vs-bluewake-m1-control-20261027T174009Z`; underlying AppImage `ce0e8bed…` | 10 runs/mode, five-pair ABBA, fixed five-scene tour; same AppImage with candidate env flag toggled | Steam Deck; 5/5 scenes and 31/31 identical checkpoints every run | Candidate regressed every scene by 1.65–2.34%; aggregate -1.88%. Rendered stable/worst neutral; slow -4.15%. Rejected and specialization source removed. |
 
 Screening evidence: a private 120-second headless diagnostic recorded 861
 samples in `func_802456E0` (7.23% process share). Generated-source and GZLE01
