@@ -4,7 +4,7 @@ Status: M0 complete; narrow M2-B3 rejected; M2-B4 attribution selects two-way 51
 
 Baseline: [`chrissotraidis/bluewake@b1bf26a`](https://github.com/chrissotraidis/bluewake/commit/b1bf26a0b8a5c1c6e86b9351d658806ff9eb3c1c)
 
-Current integration: this PR pins [`irregularthanis/RecompCore@79282e7`](https://github.com/irregularthanis/RecompCore/commit/79282e7bcb30809f113f288731c8e475dcc58c4c), which restores M2-B's direct-mapped behavior and adds diagnostic-only miss classification and shadow layouts on BlueWake's current `1446450` runtime base. Both the dependency inventory and the builder's authoritative profile use this revision. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
+Current integration: this PR pins [`irregularthanis/RecompCore@892f2fa`](https://github.com/irregularthanis/RecompCore/commit/892f2faed94da46a0de5c6183370bdc0d78a807c), which makes the selected 256-set, two-way, 512-entry layout the default-off M2-B cache while retaining diagnostic shadow layouts on BlueWake's current `1446450` runtime base. Both the dependency inventory and the builder's authoritative profile use this revision. PR [#2](https://github.com/irregularthanis/bluewake/pull/2) is the canonical workspace until the evidence supports an upstream submission.
 
 [Product brief](PRD.md) · [Tracker](PROGRESS.md)
 
@@ -283,6 +283,17 @@ Three isolated Deck sessions used BlueWake `7e41906`, RecompCore `79282e7` and A
 | Worst route | 90.5% | 94.4% | 91.6% | **97.2%** |
 
 Across the sessions, every occupied-entry miss was a different-address collision; same-address/new-fingerprint misses were zero. Two-way 512 had the highest shadow hit rate in every session and reduced direct-256 misses by 77.5% in the stable route and 70.0% in the worst route. This selects a 256-set, two-way, 512-entry production candidate for the next isolated test. The shadow result proves fewer misses, not a speedup: the candidate must still lower GX-worker, process or rendered frame time beyond A/A noise.
+
+[`892f2fa`](https://github.com/irregularthanis/RecompCore/commit/892f2faed94da46a0de5c6183370bdc0d78a807c) implements that selection without changing the key, dirty-epoch validation, vertex ownership or default-off gate:
+
+```cpp
+constexpr std::size_t kGeometryCacheWays = 2;
+constexpr std::size_t kGeometryCacheSetCount = 256;
+std::array<GeometryCacheEntry,
+           kGeometryCacheWays * kGeometryCacheSetCount> entries{};
+```
+
+Both ways are probed before selecting an empty slot or the set's next victim. A hit marks the other way as the next victim; a full-set miss replaces that victim. The focused contract proves two colliding identities coexist, a third causes one deterministic eviction, and the most recently used identity remains reusable. Existing payload mutation, dirty-epoch invalidation and untracked-memory fallback remain unchanged.
 
 Candidate isolation matters: B1–B4 are alternatives selected by B0, not a bundle. B4 excludes B3. Its first experiment held entry capacity constant; the selected follow-up deliberately tests both capacity and associativity because the same-session shadow data ranks it above either change alone.
 
