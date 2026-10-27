@@ -204,9 +204,40 @@ The attribution-only `--gather-pipe-profile` build keeps validation, packing
 and draining as profiler-visible functions. It changes code shape and is not a
 performance candidate; normal builds retain the existing inline path.
 
-Next, capture the same worst view with that diagnostic build and use call-chain
-and exclusive samples to split validation, packing, flush/drain and fallback.
-Only a stage with material exclusive cost and removable work advances to M3.
+The diagnostic capture uses the same worst view and exclusive leaf samples to
+split validation, packing, drain and fallback. Only material, removable work
+advances to M3.
+
+### Diagnostic stage split
+
+Artifact: AppImage SHA-256 `b188e84d…`; module `9cfce5bd…`; source
+[`70b8ee5`](https://github.com/irregularthanis/bluewake/commit/70b8ee5).
+The same 120-second, 99 Hz worst-view capture recorded 18,617 samples.
+
+| Stage | Process cycles | Decision |
+| --- | ---: | --- |
+| Gather alias/address validation | 1.01% | Advance: inspect avoidable alias resolution |
+| Gather byte packing | 0.14% | Reject as standalone candidate |
+| Gather drain check | 0.09% | Reject as standalone candidate |
+| Remaining slow memory helpers | 0.95% | Retain; mixes required fallback work |
+| Inline FP helpers | 0.44% | Reject as standalone candidate |
+
+The diagnostic total is 2.63%, versus 1.94% in the inline control. The added
+calls therefore distort absolute cost; these percentages rank stages but are
+not expected gains. Validation remains the only stage large enough to test.
+
+### Selected candidate contract
+
+`bw_gather_pipe()` currently calls `get_ram_ptr()` so a registered guest alias
+at `0xCC008000–0xCC00801F`, or its `0x8C008000` mirror, takes precedence over
+the hardware FIFO. RecompCore can maintain a boolean answering whether any
+registered alias overlaps either window. BlueWake may skip `get_ram_ptr()`
+only while that answer is false.
+
+The candidate must update the answer on alias add, remove and clear; retain the
+ordinary resolver when overlap exists; and pass the existing physical/mirrored
+alias-precedence cases in `tests/gather_memory_test.c`. It requires a separate
+RecompCore companion change and a BlueWake pin before source-matched A/B.
 
 ## M3 — Rank and freeze one candidate
 
