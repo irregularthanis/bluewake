@@ -139,6 +139,27 @@ perf annotate --stdio -i /tmp/bw.perf.data <symbol>
 This shows which exact instruction in the function is burning the samples, which is what
 you want before deciding what to change.
 
+### Architecture-domain distribution
+
+`profile_deck.sh` also passes the same samples through
+[`perf_domains.py`](../scripts/linux/perf_domains.py). The resulting `domains.txt`
+shows how sampled CPU self-time is distributed across translated game code, native
+replacements, host coordination, guest state/dispatch, compatibility services,
+GX/Aurora, GPU/presentation, other BlueWake code, system libraries, and the kernel. Its
+per-thread section separates the game thread from GX and renderer workers.
+
+The capture directory also contains `domains.json` for further analysis and
+`domains.md` for a GitHub-ready report. To classify an existing capture:
+
+```sh
+python3 scripts/linux/perf_domains.py /tmp/bw.perf.data \
+  --json /tmp/domains.json --markdown /tmp/domains.md
+```
+
+These percentages are statistical CPU self-time, not wall time. They answer where the
+process used CPU during the captured scene; the session log still supplies frame rate,
+waits, and whether a thread was limiting progress.
+
 ## Step 4 — Profile the rendered path (GX worker and presentation)
 
 A headless run never starts the GX worker, so it cannot answer any question about the

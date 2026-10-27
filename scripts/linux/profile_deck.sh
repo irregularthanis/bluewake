@@ -6,7 +6,8 @@
 #
 #   headless (default)  BLUEWAKE_RENDERER=headless, unpaced. Reaches the heavy
 #                       scene with no display or controller and runs the game
-#                       thread flat-out. Produces the game-thread perf profile.
+#                       thread flat-out. Produces the game-thread profile plus
+#                       architecture-domain and per-thread CPU distributions.
 #                       It does NOT produce [fps-dip] / [perf-summary] lines:
 #                       an unpaced run runs faster than real time, so the fps
 #                       watcher deliberately skips it. FPS numbers come from
@@ -111,6 +112,9 @@ mkdir -p "$out"
 run_log="$out/run.log"
 perf_data="$out/perf.data"
 report="$out/report.txt"
+domains="$out/domains.txt"
+domains_json="$out/domains.json"
+domains_md="$out/domains.md"
 
 # --- launch -------------------------------------------------------------------
 export BLUEWAKE_STATE_DIR="$data_dir"
@@ -167,6 +171,10 @@ perf record -g -F "$hz" -p "$pid" -o "$perf_data" -- sleep "$seconds" >/dev/null
 echo "profile_deck: report -> ${report#$root/}"
 perf report -i "$perf_data" --stdio --no-children > "$report"
 
+echo "profile_deck: architecture distribution -> ${domains#$root/}"
+python3 "$root/scripts/linux/perf_domains.py" "$perf_data" \
+    --json "$domains_json" --markdown "$domains_md" | tee "$domains"
+
 echo
 echo "=== top self-time symbols (first $seconds-second capture) ==="
 head -60 "$report"
@@ -190,5 +198,8 @@ echo
 echo "profile_deck: done. artifacts in ${out#$root/}"
 echo "  perf.data   raw perf capture (open with 'perf report -i $perf_data')"
 echo "  report.txt  flat self-time ranking"
+echo "  domains.txt architecture-domain and per-thread CPU distribution"
+echo "  domains.json machine-readable distribution"
+echo "  domains.md  GitHub-friendly distribution"
 echo "  run.log     the game's own stdout/stderr"
 [[ -n "${newest_log:-}" ]] && echo "  session.log copy of $newest_log"
