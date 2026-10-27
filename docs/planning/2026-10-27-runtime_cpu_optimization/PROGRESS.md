@@ -18,6 +18,11 @@ Architecture: [performance workflow](../../performance/Overview.md#performance-w
 
 Parallel with M2; owns direct-call generator and readiness-path analysis.
 
+Decision: pursue one bounded return-guard specialization. The measured rate is
+5.86 million reached guards/s, but prior attribution limits the likely gain to
+about 0.69% process-wide. Reject it if source-matched headless A/B is ≤0.2% or
+if preserving observed budget/address rejections removes the proposed saving.
+
 - [ ] M1-T01: Measure entry and return readiness checks separately, including calls/frame and exclusive cost.
 - [ ] M1-T02: Record which readiness inputs can change during each eligible callee and which constant addresses are already filtered by generation.
 - [ ] M1-T03: Propose one semantics-preserving specialization/amortization or record a measured no-go.

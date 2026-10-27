@@ -126,12 +126,41 @@ included startup and stable/slow/worst Outset views, so counts are cumulative.
 | 57.33% of return rejections are budget; 42.67% are fast-address | Any specialization must preserve both invalidation sources | Map which callees can change each input |
 | No slow-path rejection occurred | This run used the production inline fast answer | Do not generalize to stage-select/diagnostic modes |
 
+### M1 pursuit decision
+
+**Continue for one bounded return-guard experiment, then either retain it or
+close M1.** This is a high-frequency, low-ceiling optimization—not a likely
+explanation for the full Steam Deck slowdown.
+
+| Decision input | Value | Meaning |
+| --- | ---: | --- |
+| Reached guards | 3,988,795,285 | Entry plus return checks during the session |
+| Session duration | 680.8 s | First to last recorded performance sample |
+| Approximate guard rate | 5.86 million/s | Small per-check savings can accumulate |
+| Prior direct-call helper attribution | ~0.69% process-wide | Likely gain ceiling is modest |
+| Reached return guards | 1,749,593,903 | The narrower specialization applies frequently |
+| Actual return rejections | 3,630,350 | Required semantics cannot be removed wholesale |
+
+The next candidate is a return-specific predicate. A successful entry already
+establishes a non-null CPU, enabled direct calls, a host callback and valid
+depth; the call restores its prior depth before the return check. The candidate
+may omit only those proven entry invariants. It must retain exception, budget,
+interrupt/host state and address-filter checks, which rejected real returns in
+this run.
+
+| Next step | Evidence required | Stop/continue rule |
+| --- | --- | --- |
+| Inspect generated/native code | Exact instructions removed from the return path; proof for every omitted input | Stop if the invariant is not valid across all rewritten calls |
+| Add focused contract tests | Original and specialized predicates agree for exception, budget, interrupt, address and diverted-return cases | Stop on any disagreement |
+| Headless source-matched A/B | Five scenes, ABBA ordering, identical checkpoints | Stop if aggregate gain is ≤0.2% or inconsistent across runs |
+| Rendered fixed-view A/B | Stable/slow/worst views against M0 noise | Continue to full qualification only with a repeatable positive signal |
+
 ### Remaining M1 gate
 
 - Normalize checks per retrace in controlled, source-matched runs.
 - Attribute exclusive entry/return guard cost; counts alone do not establish gain.
 - Explain the 0.79% that did not reach return classification.
-- Produce one contract-preserving specialization or record a no-go.
+- Test the bounded return predicate above; retain it or record a no-go.
 
 ## M2 — Split FP and gather-pipe costs
 
