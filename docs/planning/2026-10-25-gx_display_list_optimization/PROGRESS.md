@@ -1,6 +1,6 @@
 # PROGRESS — Repeated GX display-list optimization
 
-Status: M0 complete; narrow M2-B3 rejected; M2-B4 miss attribution ready to build
+Status: M0 complete; narrow M2-B3 rejected; M2-B4 attribution selects two-way 512
 
 [Product brief](PRD.md) · [Technical plan](TECH_PLAN.md)
 
@@ -55,7 +55,9 @@ M2-T03 and M2-T04 remain open: FPS was not captured, and eviction/shutdown plus 
 - [x] M2-B4-T03: Build and publish the two-way B4 AppImage with source receipts and diagnostics enabled for the first fixed-view pass.
 - [x] M2-B4-T04: Compare conflicts, hit rate and process/GX-worker CPU; record the inconclusive result rather than advancing the layout.
 - [x] M2-B4-T05: Restore direct-mapped behavior and add diagnostic-only miss classes plus 256/512 direct/two-way shadow caches.
-- [ ] M2-B4-T06: Build the attribution AppImage and use one representative session to decide whether B4 or B2 owns the remaining misses.
+- [x] M2-B4-T06: Build the attribution AppImage and use stable, slow and worst sessions to decide whether B4 or B2 owns the remaining misses.
+- [ ] M2-B4-T07: Implement the selected 256-set, two-way, 512-entry production candidate and extend focused collision/eviction tests.
+- [ ] M2-B4-T08: Build and run matched direct-256 versus two-way-512 fixed-view A/B before advancing to the full tour.
 - [ ] M2-B5-T01: Complete mutation, collision, eviction, reset, shutdown and cached-versus-uncached equivalence tests.
 - [ ] M2-B6-T01: Run A/A then rotated cache-off/M2-B/optimized-candidate Deck rounds across fixed views and the five-scene tour.
 - [ ] M2-B6-T02: Record FPS/frame-time, GX-worker/process CPU, activation and player-facing results; retain only a repeatable improvement.
@@ -100,5 +102,6 @@ Parallel with M1 and M2; owns state generations and cache-hit comparison.
 | M2-B4-T01 / T02 | [RecompCore `b8f9e2f`](https://github.com/irregularthanis/RecompCore/commit/b8f9e2f3ffdf0e6b87dc60b02bdf56b9f6a4728f) | Reorganize 256 entries into 128 two-way sets; add same-set coexistence case; build `gxcore_tests`; run focused CTest | GCC 16 isolated GXRuntime build | PASS: two colliding identities coexist; existing payload mutation, dirty-epoch invalidation and safe-bypass checks pass. Deck build pending. |
 | M2-B4-T03 / T04 | BlueWake `a4fd684`, RecompCore `b8f9e2f`, AppImage `485e1df3...5a2b`; private log `54f64b9a...ed8a` | Stable/slow and two worst-view 15-second samples; flush aggregate counters on exit | Steam Deck LCD, Game Mode; cache/diagnostics on, pacing off | INCONCLUSIVE: 90.870% eligible hit rate; worst GX-worker mean 607; mixed view results. Old conflict metric did not distinguish invalidation from address collision. |
 | M2-B4-T05 | [RecompCore `79282e7`](https://github.com/irregularthanis/RecompCore/commit/79282e7bcb30809f113f288731c8e475dcc58c4c) | Restore direct map; add miss classes and four diagnostic shadow layouts; build/run focused `gxcore_tests` | GCC 16 isolated GXRuntime build | PASS: production contract remains direct-mapped; focused mutation, collision and fallback tests pass. Deck build pending. |
+| M2-B4-T06 | BlueWake [`7e41906`](https://github.com/irregularthanis/bluewake/commit/7e41906d80682efb2d00eb17775a9494b05dc5ca), RecompCore [`79282e7`](https://github.com/irregularthanis/RecompCore/commit/79282e7bcb30809f113f288731c8e475dcc58c4c), AppImage `8e962687...f755`; private logs `36de6515...1874`, `81bc312a...93e`, `9e74b197...866` | Three separate launches; stable/slow/worst stationary 15-second CPU windows; compare four simultaneous shadow layouts; flush counters on normal exit | Steam Deck LCD, Game Mode; cache/diagnostics on, pacing off | SELECT two-way 512: 94.8%/94.5%/97.2% session hit rates versus direct-256 77.1%/86.0%/90.5%. All occupied misses were different-address collisions; same-address misses were zero. CPU windows were 1,858/2,062/2,199 jiffies, but do not compare layouts because shadows do not drive production behavior. |
 
 Private logs, saves, translated modules and AppImages are not published.

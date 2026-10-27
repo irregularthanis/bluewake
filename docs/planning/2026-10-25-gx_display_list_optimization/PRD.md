@@ -64,14 +64,14 @@ M2-B proved that reuse is frequent: 91.5% of eligible lookups hit and the repeat
 
 M2-B0 then found a narrower avoidable cost. Stable, slow and worst views copied 5.90–12.44 GB of cached vertices, while a worst-view cycles profile attributed 0.49% of the full process to zero-initializing `DrawPlan::vertices`. M2-B3 removed that redundant write, but rotated worst-view samples did not improve: GX-worker CPU rose from a 583.5-jiffy control mean to 626 (+7.3%). The narrow candidate is rejected; broader zero-copy ownership work remains deferred.
 
-Almost every M2-B miss was originally labeled a conflict: the worst view recorded 175,261 conflicts from 175,411 misses. A fixed-capacity two-way test did not materially raise hit rate, revealing that the old counter combined true different-address collisions with same-address fingerprint changes. M2-B4 now restores the direct-mapped baseline and attributes those cases separately while shadowing alternative layouts without changing gameplay behavior.
+Almost every M2-B miss was originally labeled a conflict: the worst view recorded 175,261 conflicts from 175,411 misses. A fixed-capacity two-way test did not establish a CPU improvement, so M2-B4 restored the direct-mapped baseline and shadowed alternative layouts. Three Deck sessions then classified every occupied-entry miss as a different-address collision and none as a same-address fingerprint change. The 512-entry two-way shadow reached 94.5–97.2% hits and is the next isolated production candidate; it still requires matched CPU and frame-time qualification.
 
 ## Outcomes and acceptance
 
 - Name the display-list identities responsible for the stable/slow delta; an unattributed aggregate is insufficient.
 - Reduce GX-worker CPU time or rendered frame time in the slow view. A lower plan count alone is not a performance result.
 - Attribute M2-B hit-path cost among FIFO hashing, array/epoch validation, cache lookup and vertex copying before selecting another implementation.
-- Reduce conflict misses only if a fixed-capacity B4 layout improves M2-B beyond measurement noise without changing output or lifecycle behavior.
+- Reduce collision misses only if the selected B4 layout improves M2-B beyond measurement noise without changing output or lifecycle behavior.
 - Retain a hit-path optimization only when its improvement exceeds A/A noise in GX-worker or frame time; report CPU-only gains as such.
 - Preserve guest checkpoints, draw order, real rendered frames and Smooth Motion output across the benchmark scenes.
 - Keep runtime behavior unchanged when the candidate is disabled until platform qualification is complete.

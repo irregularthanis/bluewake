@@ -1,6 +1,6 @@
 # TECH_PLAN — Repeated GX display-list optimization
 
-Status: M0 complete; narrow M2-B3 rejected; M2-B4 attribution prepared after inconclusive layout test
+Status: M0 complete; narrow M2-B3 rejected; M2-B4 attribution selects two-way 512 for qualification
 
 Baseline: [`chrissotraidis/bluewake@b1bf26a`](https://github.com/chrissotraidis/bluewake/commit/b1bf26a0b8a5c1c6e86b9351d658806ff9eb3c1c)
 
@@ -274,7 +274,17 @@ The first two-way Deck session produced a 90.870% eligible hit rate versus 90.8%
 
 [`79282e7`](https://github.com/irregularthanis/RecompCore/commit/79282e7bcb30809f113f288731c8e475dcc58c4c) restores the direct-mapped cache and, only under `DOL_GXCORE_OPT_LOG=1`, separates empty, same-address/new-fingerprint and different-address misses. It also shadows 256/512-entry direct-mapped and 256/512-entry two-way tag caches. Shadow caches never store vertices or affect the production hit decision.
 
-Candidate isolation matters: B1–B4 are alternatives selected by B0, not a bundle. B4 excludes B3 and keeps entry capacity constant. A Deck build must show fewer conflicts and lower GX-worker or frame time; hit-rate improvement alone is insufficient.
+Three isolated Deck sessions used BlueWake `7e41906`, RecompCore `79282e7` and AppImage SHA-256 `8e962687...f755`. The fixed camera CPU windows were 1,858, 2,062 and 2,199 process jiffies for stable, slow and worst angles. Cache counters flush at shutdown, so the following shadow results cover each complete session, including navigation before its 15-second stationary sample:
+
+| Session | Direct 256 | Direct 512 | Two-way 256 | Two-way 512 |
+| --- | ---: | ---: | ---: | ---: |
+| Stable route | 77.1% | 85.7% | 87.3% | **94.8%** |
+| Slow route | 86.0% | 92.4% | 88.4% | **94.5%** |
+| Worst route | 90.5% | 94.4% | 91.6% | **97.2%** |
+
+Across the sessions, every occupied-entry miss was a different-address collision; same-address/new-fingerprint misses were zero. Two-way 512 had the highest shadow hit rate in every session and reduced direct-256 misses by 77.5% in the stable route and 70.0% in the worst route. This selects a 256-set, two-way, 512-entry production candidate for the next isolated test. The shadow result proves fewer misses, not a speedup: the candidate must still lower GX-worker, process or rendered frame time beyond A/A noise.
+
+Candidate isolation matters: B1–B4 are alternatives selected by B0, not a bundle. B4 excludes B3. Its first experiment held entry capacity constant; the selected follow-up deliberately tests both capacity and associativity because the same-session shadow data ranks it above either change alone.
 
 ### M3 — Generation-keyed derived state
 
