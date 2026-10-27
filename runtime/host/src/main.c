@@ -2100,6 +2100,7 @@ static bool g_direct_call_trace;
 static BwHostSkipFast g_skip_fast = {0u, {0u, 0u}, {0xFFFFFFFFu, 0xFFFFFFFFu}, {0u, 0u}};
 static bool g_skip_fast_on;
 static bool g_skip_verify; // BLUEWAKE_DIRECT_SKIP_VERIFY=1: the counts at exit
+static bool g_direct_call_measure; // BLUEWAKE_DIRECT_CALL_MEASURE=1: guard outcomes at exit
 static void host_skip_fast_refresh(void) {
     if (!g_skip_fast_on)
         return;
@@ -8285,6 +8286,14 @@ int main(int argc, char** argv) {
                 &g_interrupts.pi_cause, &g_interrupts.pi_mask,
                 bluewake_stage_select_live ? host_direct_can_skip_stage_select : host_direct_can_skip, NULL);
         }
+        typedef void (*DirectCallMeasureFn)(bool);
+        DirectCallMeasureFn direct_call_measure = (DirectCallMeasureFn)
+            dlsym(lib, "bluewake_composite_direct_call_measure");
+        const char* measure_env = getenv("BLUEWAKE_DIRECT_CALL_MEASURE");
+        g_direct_call_measure = measure_env != NULL && strcmp(measure_env, "1") == 0 &&
+                                direct_call_measure != NULL;
+        if (g_direct_call_measure)
+            direct_call_measure(true);
         typedef int (*EdgeFilterFn)(bool);
         EdgeFilterFn edge_filter = (EdgeFilterFn)
             dlsym(lib, "bluewake_composite_edge_filter");
@@ -16089,6 +16098,32 @@ int main(int argc, char** argv) {
             skip_counts(&unsafe, &conservative, &inline_answers);
         fprintf(stderr, "[direct-skip] verify: inline=%llu unsafe=%llu conservative=%llu\n", inline_answers,
                 unsafe, conservative);
+    }
+    if (g_direct_call_measure) {
+        enum { DIRECT_PHASES = 2, DIRECT_RESULTS = 8 };
+        typedef void (*DirectCallMeasureCountsFn)(unsigned long long*,
+                                                   unsigned long long*,
+                                                   unsigned long long*);
+        DirectCallMeasureCountsFn measure_counts = (DirectCallMeasureCountsFn)
+            dlsym(lib, "bluewake_composite_direct_call_measure_counts");
+        unsigned long long counts[DIRECT_PHASES * DIRECT_RESULTS] = {0};
+        unsigned long long return_match = 0ull, return_mismatch = 0ull;
+        if (measure_counts != NULL)
+            measure_counts(counts, &return_match, &return_mismatch);
+        static const char* const phase_names[DIRECT_PHASES] = {"entry", "return"};
+        static const char* const result_names[DIRECT_RESULTS] = {
+            "unavailable", "depth", "exception", "budget", "host-busy",
+            "fast-denied", "slow-denied", "allowed",
+        };
+        for (unsigned phase = 0; phase < DIRECT_PHASES; ++phase) {
+            fprintf(stderr, "[direct-call-measure] phase=%s", phase_names[phase]);
+            for (unsigned result = 0; result < DIRECT_RESULTS; ++result)
+                fprintf(stderr, " %s=%llu", result_names[result],
+                        counts[phase * DIRECT_RESULTS + result]);
+            fputc('\n', stderr);
+        }
+        fprintf(stderr, "[direct-call-measure] expected-return=%llu unexpected-return=%llu\n",
+                return_match, return_mismatch);
     }
     fprintf(stderr,
             "[collision-provenance] summary ground_cross_returns=%llu "
