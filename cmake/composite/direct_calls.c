@@ -26,6 +26,10 @@ void* bw_host_can_skip_user;
 const volatile BwHostSkipFast* bw_host_skip_fast;
 bool bw_host_skip_verify;
 static unsigned long long s_skip_unsafe, s_skip_conservative, s_skip_inline;
+bool bw_direct_measure;
+unsigned long long bw_direct_measure_results[BW_DIRECT_PHASE_COUNT][BW_DIRECT_RESULT_COUNT];
+unsigned long long bw_direct_measure_return_match;
+unsigned long long bw_direct_measure_return_mismatch;
 
 u32 bw_edge_watch_table[BW_EDGE_WATCH_SLOTS];
 bool bw_edge_watch_ready;
@@ -159,4 +163,27 @@ BW_DIRECT_EXPORT void bluewake_composite_direct_skip_counts(unsigned long long* 
     if (unsafe != NULL) *unsafe = s_skip_unsafe;
     if (conservative != NULL) *conservative = s_skip_conservative;
     if (inline_answers != NULL) *inline_answers = s_skip_inline;
+}
+
+BW_DIRECT_EXPORT void bluewake_composite_direct_call_measure(bool enabled) {
+    bw_direct_measure = enabled;
+    if (enabled) {
+        for (unsigned phase = 0; phase < BW_DIRECT_PHASE_COUNT; ++phase)
+            for (unsigned result = 0; result < BW_DIRECT_RESULT_COUNT; ++result)
+                bw_direct_measure_results[phase][result] = 0ull;
+        bw_direct_measure_return_match = 0ull;
+        bw_direct_measure_return_mismatch = 0ull;
+    }
+}
+
+BW_DIRECT_EXPORT void bluewake_composite_direct_call_measure_counts(
+    unsigned long long* results, unsigned long long* return_match,
+    unsigned long long* return_mismatch) {
+    if (results != NULL)
+        for (unsigned phase = 0; phase < BW_DIRECT_PHASE_COUNT; ++phase)
+            for (unsigned result = 0; result < BW_DIRECT_RESULT_COUNT; ++result)
+                results[phase * BW_DIRECT_RESULT_COUNT + result] =
+                    bw_direct_measure_results[phase][result];
+    if (return_match != NULL) *return_match = bw_direct_measure_return_match;
+    if (return_mismatch != NULL) *return_mismatch = bw_direct_measure_return_mismatch;
 }

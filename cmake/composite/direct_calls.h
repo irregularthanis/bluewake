@@ -61,6 +61,33 @@ void bluewake_composite_direct_skip_counts(unsigned long long* unsafe,
                                            unsigned long long* inline_answers);
 int bluewake_composite_edge_filter(bool);
 
+/* Opt-in measurement for the direct-call guard. Shipping builds take the
+ * unchanged bw_direct_call_ready path unless the host explicitly enables it. */
+enum {
+    BW_DIRECT_PHASE_ENTRY,
+    BW_DIRECT_PHASE_RETURN,
+    BW_DIRECT_PHASE_COUNT,
+};
+enum {
+    BW_DIRECT_RESULT_UNAVAILABLE,
+    BW_DIRECT_RESULT_DEPTH,
+    BW_DIRECT_RESULT_EXCEPTION,
+    BW_DIRECT_RESULT_BUDGET,
+    BW_DIRECT_RESULT_HOST_BUSY,
+    BW_DIRECT_RESULT_FAST_DENIED,
+    BW_DIRECT_RESULT_SLOW_DENIED,
+    BW_DIRECT_RESULT_ALLOWED,
+    BW_DIRECT_RESULT_COUNT,
+};
+extern bool bw_direct_measure;
+extern unsigned long long bw_direct_measure_results[BW_DIRECT_PHASE_COUNT][BW_DIRECT_RESULT_COUNT];
+extern unsigned long long bw_direct_measure_return_match;
+extern unsigned long long bw_direct_measure_return_mismatch;
+void bluewake_composite_direct_call_measure(bool enabled);
+void bluewake_composite_direct_call_measure_counts(unsigned long long* results,
+                                                   unsigned long long* return_match,
+                                                   unsigned long long* return_mismatch);
+
 /* The host's edge service has nothing to do at an address it does not watch:
  * its interrupt sources are clean and no interrupt the guest would take is
  * pending. */
@@ -93,6 +120,53 @@ static inline bool bw_direct_call_ready(const CPUState* cpu, u32 address) {
         return allowed;
     }
     return bw_host_can_skip(bw_host_can_skip_user, cpu, address);
+}
+
+/* Diagnostic form of the same predicate. Each query receives exactly one
+ * outcome, split between entry and return boundaries. */
+static inline bool bw_direct_call_ready_measured(const CPUState* cpu, u32 address, unsigned phase) {
+    if (__builtin_expect(!bw_direct_measure, 1))
+        return bw_direct_call_ready(cpu, address);
+    unsigned result;
+    bool allowed = false;
+    if (!bw_direct_enabled || cpu == NULL || bw_host_can_skip == NULL) {
+        result = BW_DIRECT_RESULT_UNAVAILABLE;
+    } else if (bw_direct_depth >= BW_DIRECT_DEPTH_MAX) {
+        result = BW_DIRECT_RESULT_DEPTH;
+    } else if (cpu->exception != 0u) {
+        result = BW_DIRECT_RESULT_EXCEPTION;
+    } else if (cpu->cycle_budget > 0 && cpu->downcount <= -cpu->cycle_budget) {
+        result = BW_DIRECT_RESULT_BUDGET;
+    } else if (!bw_host_quiet(cpu)) {
+        result = BW_DIRECT_RESULT_HOST_BUSY;
+    } else {
+        const volatile BwHostSkipFast* fast = bw_host_skip_fast;
+        if (fast != NULL && fast->simple) {
+            allowed = address != fast->single[0] && address != fast->single[1] &&
+                      address - fast->range_first[0] > fast->range_span[0] &&
+                      address - fast->range_first[1] > fast->range_span[1];
+            if (__builtin_expect(bw_host_skip_verify, 0))
+                bw_host_skip_verify_check(cpu, address, allowed);
+            result = allowed ? BW_DIRECT_RESULT_ALLOWED : BW_DIRECT_RESULT_FAST_DENIED;
+        } else {
+            allowed = bw_host_can_skip(bw_host_can_skip_user, cpu, address);
+            result = allowed ? BW_DIRECT_RESULT_ALLOWED : BW_DIRECT_RESULT_SLOW_DENIED;
+        }
+    }
+    if (phase < BW_DIRECT_PHASE_COUNT)
+        ++bw_direct_measure_results[phase][result];
+    return allowed;
+}
+
+static inline bool bw_direct_return_matches(u32 actual, u32 expected) {
+    const bool matches = actual == expected;
+    if (__builtin_expect(bw_direct_measure, 0)) {
+        if (matches)
+            ++bw_direct_measure_return_match;
+        else
+            ++bw_direct_measure_return_mismatch;
+    }
+    return matches;
 }
 
 /* The addresses the host's edge service acts at, from the builder's watch list
