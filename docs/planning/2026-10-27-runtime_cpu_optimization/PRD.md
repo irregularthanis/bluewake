@@ -54,6 +54,13 @@ flowchart TD
 - Produce isolated control/candidate builds and retain changes only when improvement exceeds same-build noise across the affected fixed scene and full benchmark methodology.
 - Record rejected candidates with measurements so the same hypotheses are not repeatedly reimplemented.
 
+Current M2 evidence identifies one qualifying candidate: cache the answer to
+whether guest aliases overlap the gather-pipe FIFO windows, invalidated by the
+RecompCore alias generation. Against the same PR #480 foundation, the candidate
+improved all five fixed headless scenes by 2.43–3.37% and the aggregate median
+by 2.84%, with identical guest checkpoints. It advances to contract freeze;
+this result does not yet make the option a production default.
+
 ## Acceptance and constraints
 
 | Gate | Required result |

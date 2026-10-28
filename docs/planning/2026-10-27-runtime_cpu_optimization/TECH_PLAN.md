@@ -307,8 +307,31 @@ camera positions and 20-second `perf stat` interval were used for both builds.
 
 Negative values favor the candidate. The rendered samples show lower retired
 work, especially in the worst view, but only small wall-time/cycle movement.
-This is promising rather than conclusive: the interleaved five-scene headless
-A/B benchmark remains the repeatability and guest-checkpoint gate.
+This is consistent with reduced resolver work, but the rendered samples alone
+are too short and position-sensitive to qualify the candidate.
+
+### Headless qualification
+
+The established fixed-state tour ran ten measured passes per artifact in
+candidate/control/control/candidate order. Every pass loaded all five scenes,
+produced all 31 checkpoints, and matched guest-visible state across both
+artifacts.
+
+| Scene | Control | Candidate | Improvement |
+| --- | ---: | ---: | ---: |
+| Outset | 44.287 FPS | 45.365 FPS | +2.43% |
+| Windfall | 46.711 FPS | 48.058 FPS | +2.88% |
+| Dragon Roost Cavern | 63.448 FPS | 65.255 FPS | +2.85% |
+| Forest Haven | 37.806 FPS | 39.079 FPS | +3.37% |
+| Sea by the Fortress | 35.580 FPS | 36.445 FPS | +2.43% |
+
+The per-run geometric-mean median improved by **2.84%**. The gain appears in
+every scene and is substantially larger than the frozen same-build headless
+noise. Together with identical checkpoints and the focused alias-precedence
+tests, this advances the gather alias cache to M3 ranking and contract freeze.
+
+Private Deck evidence:
+`/home/deck/bluewake-ab/8d8587b37c36-vs-73ef48e1fe3d-20261027T234341Z`.
 
 ## M3 — Rank and freeze one candidate
 
