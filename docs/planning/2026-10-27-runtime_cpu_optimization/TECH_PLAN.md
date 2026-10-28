@@ -330,8 +330,8 @@ every scene and is substantially larger than the frozen same-build headless
 noise. Together with identical checkpoints and the focused alias-precedence
 tests, this advances the gather alias cache to M3 ranking and contract freeze.
 
-Private Deck evidence:
-`/home/deck/bluewake-ab/8d8587b37c36-vs-73ef48e1fe3d-20261027T234341Z`.
+Private Deck evidence identifier:
+`8d8587b37c36-vs-73ef48e1fe3d-20261027T234341Z`.
 
 ## M3 — Rank and freeze one candidate
 
