@@ -252,6 +252,64 @@ the physical/mirrored alias-precedence cases in `tests/gather_memory_test.c`.
 Final qualification must be based on #480 so the measured GPR improvement and
 the gather candidate are tested together against the relevant future baseline.
 
+### Implemented gather alias cache
+
+The candidate adds a generation-keyed decision in front of the existing
+resolver. It does not cache a guest pointer. Instead, it caches only whether a
+guest alias currently overlaps either FIFO window. An alias mutation advances
+the RecompCore generation, invalidating that decision before the next gather
+access.
+
+```mermaid
+flowchart TD
+    Write["Gather-pipe write"]
+    Generation{"Alias generation<br/>unchanged?"}
+    Recheck["Check both FIFO windows<br/>for alias overlap"]
+    Overlap{"Any overlap?"}
+    Resolver["Use get_ram_ptr()<br/>preserve alias precedence"]
+    FIFO["Use hardware FIFO path"]
+
+    Write --> Generation
+    Generation -->|"No"| Recheck --> Overlap
+    Generation -->|"Yes"| Overlap
+    Overlap -->|"Yes"| Resolver
+    Overlap -->|"No"| FIFO
+```
+
+This removes repeated alias-table resolution from the common no-overlap path
+while retaining the original resolver whenever an alias could cover the FIFO.
+The implementation is opt-in through `--gather-alias-cache`; normal builds are
+unchanged. The physical and mirrored FIFO alias cases are covered by the third
+gather-memory test variant.
+
+### Rendered candidate comparison
+
+Both artifacts use PR [#480](https://github.com/chrissotraidis/bluewake/pull/480)
+as their optimization foundation, Clang 18, `x86-64-v3`, and the same enabled
+BlueWake optimization set. The candidate changes only the BlueWake alias-cache
+integration and its RecompCore dependency. Each source snapshot performed its
+normal local PGO training, so this comparison measures the complete resulting
+build rather than isolating one generated instruction sequence.
+
+| Role | BlueWake source | RecompCore | AppImage SHA-256 | Difference |
+| --- | --- | --- | --- | --- |
+| Control | [`73ef48e`](https://github.com/chrissotraidis/bluewake/commit/73ef48e1fe3d3ef128ff8a5ee67a2705bc74d4a3) | `47a5229` | `77b734f8…` | PR #480 foundation |
+| Candidate | [`8d8587b`](https://github.com/irregularthanis/bluewake/commit/8d8587b37c360ee91f6947c40118e646a9faf4d8) | `caeedd8` | `5723637a…` | Same foundation plus generation-keyed gather alias cache |
+
+The same Steam Deck, Game Mode launcher, disabled interpolation pacing, save,
+camera positions and 20-second `perf stat` interval were used for both builds.
+
+| Rendered view | CPU time | Cycles | Instructions | Branches |
+| --- | ---: | ---: | ---: | ---: |
+| Stable | -0.72% | -1.34% | -1.76% | -3.07% |
+| Slow | +0.08% | +0.27% | -0.26% | -1.66% |
+| Worst | -0.61% | -0.94% | -4.47% | -5.33% |
+
+Negative values favor the candidate. The rendered samples show lower retired
+work, especially in the worst view, but only small wall-time/cycle movement.
+This is promising rather than conclusive: the interleaved five-scene headless
+A/B benchmark remains the repeatability and guest-checkpoint gate.
+
 ## M3 — Rank and freeze one candidate
 
 Each candidate record must contain:
