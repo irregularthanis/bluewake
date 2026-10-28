@@ -20,6 +20,7 @@ Pictures:
   --scale N                    render scale (1 is the game's 640x480 picture at the window's size)
 Run:
   --max-retraces N             end the run at this retrace; a state's retrace counts on from where it was saved
+  --timeout SECONDS            stop a run that is still going after this long (timed_out in results.json)
   --unpaced                    as fast as it can (BLUEWAKE_WALL_PACE=0): captures in seconds, no in-between frames
   --set KEY=VALUE              any other variable, for every variant (BLUEWAKE_HD_LOOK=1, DOL_AURORA_AO_DEBUG=1, ...)
 Measure:
@@ -115,7 +116,7 @@ def variables(args):
     return env
 
 
-def run(app, card, folder, env, status, skip):
+def run(app, card, folder, env, status, skip, timeout=None):
     folder.mkdir(parents=True, exist_ok=True)
     data = folder / "data"
     data.mkdir(exist_ok=True)
@@ -144,13 +145,19 @@ def run(app, card, folder, env, status, skip):
     start = time.time()
     with open(folder / "log.txt", "w") as log:
         # A GUI program on Windows: waiting on it here waits for the game to close.
-        code = subprocess.run([str(app)], env=full, cwd=str(Path(app).parent), stdout=log,
-                              stderr=subprocess.STDOUT).returncode
-    note(f"exit {code}")
+        process = subprocess.Popen([str(app)], env=full, cwd=str(Path(app).parent), stdout=log,
+                                   stderr=subprocess.STDOUT)
+        try:
+            code = process.wait(timeout=timeout)
+            timed_out = False
+        except subprocess.TimeoutExpired:
+            process.kill()
+            code, timed_out = process.wait(), True
+    note(f"exit {code}" + (" (timed out)" if timed_out else ""))
     frames = len(list(folder.glob("frame-*.ppm")))
     dumped = len(list((folder / "dump").glob("*.ppm"))) if (folder / "dump").exists() else 0
     result = {"run": folder.name, "exit": code, "seconds": round(time.time() - start, 1), "frames": frames,
-              "dumped": dumped, **measure((folder / "log.txt").read_text(errors="replace"), skip)}
+              "dumped": dumped, "timed_out": timed_out, **measure((folder / "log.txt").read_text(errors="replace"), skip)}
     speed = f", {result['game_fps']} game frames/s, busy {result['busy']}%" if "game_fps" in result else ""
     gpu = f", GPU busy {result['gpu_busy_ms']} ms" if "gpu_busy_ms" in result else ""
     print(f"{folder.name}: exit {code} after {result['seconds']:.0f} s, {frames} frames, {dumped} dumped images"
@@ -177,6 +184,7 @@ def main():
     parser.add_argument("--scale", type=int)
     parser.add_argument("--max-retraces", type=int)
     parser.add_argument("--unpaced", action="store_true")
+    parser.add_argument("--timeout", type=float)
     parser.add_argument("--gpu-prof", action="store_true")
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--skip", type=int, default=300)
@@ -210,7 +218,7 @@ def main():
         for repeat in range(1, args.repeat + 1):
             folder = name + (f"-{repeat}" if args.repeat > 1 else "")
             result = run(app, args.card, args.out / folder if folder else args.out, {**env, **overrides}, status,
-                         args.skip)
+                         args.skip, args.timeout)
             results.append({"variant": name, **result})
     (args.out / "results.json").write_text(json.dumps(results, indent=1))
     if len(results) > 1:
@@ -221,7 +229,7 @@ def main():
                                 if all(key in r for r in mine) else "-")
             print(f"{name or '(run)':16} {mean('game_fps'):>13}   {mean('busy'):>6}   {mean('gpu_busy_ms'):>11}")
     # A warp's own stop (BLUEWAKE_WARP_STOP_AFTER) ends with 1: that is a finished run.
-    sys.exit(1 if any(r["exit"] not in (0, 1) for r in results) else 0)
+    sys.exit(1 if any(r["exit"] not in (0, 1) or r["timed_out"] for r in results) else 0)
 
 
 if __name__ == "__main__":

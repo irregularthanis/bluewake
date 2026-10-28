@@ -1,0 +1,201 @@
+"""Synthetic checks for the rendered tests (scripts/render_suite.py, render_test and the scripts they run).
+No disc, card or app: tests/render_fixtures/fake_bluewake.py writes the frames and log lines instead."""
+
+from pathlib import Path
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = Path(__file__).parents[1]
+SCRIPTS = ROOT / 'scripts'
+FAKE = ROOT / 'tests' / 'render_fixtures' / 'fake_bluewake.py'
+sys.path.insert(0, str(SCRIPTS))
+import bench_rooms
+import render_suite
+import rendered_run
+
+try:
+    import numpy  # noqa: F401
+    import PIL  # noqa: F401
+    HAVE_IMAGES = True
+except ImportError:
+    HAVE_IMAGES = False
+
+
+class Work(unittest.TestCase):
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir)
+
+    def app(self, name):
+        path = self.dir / 'apps' / name
+        path.parent.mkdir(exist_ok=True)
+        shutil.copy(FAKE, path)
+        path.chmod(0o755)
+        return path
+
+
+class Manifest(unittest.TestCase):
+    def test_the_scenes_in_the_repo_are_valid(self):
+        scenes = render_suite.scenes_for(SCRIPTS / 'render_scenes.json', 'full')
+        self.assertEqual(render_suite.validate(scenes), [])
+        quick = render_suite.scenes_for(SCRIPTS / 'render_scenes.json', 'quick')
+        self.assertTrue(0 < len(quick) < len(scenes))
+
+    def test_problems_are_named(self):
+        problems = render_suite.validate([
+            {'name': 'a', 'state': 's', 'max_retraces': 10, 'dump': '0:5'},
+            {'name': 'a', 'max_retraces': '10', 'capture': '1:1', 'colour': 'blue'},
+            {'name': 'b', 'state': 's', 'max_retraces': 10}])
+        text = '\n'.join(problems)
+        for expected in ('dump needs smooth', 'name used twice', 'no state', 'max_retraces must be a number',
+                         'unknown keys colour', 'b: give capture or dump'):
+            self.assertIn(expected, text)
+
+
+class Rooms(unittest.TestCase):
+    def rows(self, a, b, arrived='True'):
+        return [{'room': 'sea:43:0', 'name': 'Sector 2B', 'variant': v, 'arrived': arrived, 'gpu_ms': str(x),
+                 'busy': '60'} for v, xs in (('A', a), ('B', b)) for x in xs]
+
+    def test_within_noise_is_not_flagged(self):
+        [room] = render_suite.compare_rooms(self.rows([4.0, 4.6, 4.1], [4.2, 4.0, 4.5]), 5.0)
+        self.assertEqual(room['flags'], [])
+
+    def test_a_real_slowdown_is_flagged(self):
+        [room] = render_suite.compare_rooms(self.rows([6.0, 6.1, 6.05], [4.0, 4.05, 4.1]), 5.0)
+        self.assertEqual(room['flags'], ['gpu_ms +49.4%'])
+
+    def test_a_small_steady_change_under_the_floor_is_not_flagged(self):
+        [room] = render_suite.compare_rooms(self.rows([4.1, 4.1], [4.0, 4.0]), 5.0)
+        self.assertEqual(room['flags'], [])
+
+    def test_a_room_not_reached_is_flagged(self):
+        [room] = render_suite.compare_rooms(self.rows([4.0], [4.0], arrived='False'), 5.0)
+        self.assertIn('did not arrive', room['flags'])
+
+    def test_bench_rooms_reads_the_sweep_picks(self):
+        rooms = bench_rooms.read_rooms(SCRIPTS / 'bench_rooms.tsv')
+        self.assertEqual(rooms[0], ('38.4', 'SubD51:1:0', 'SubD51'))
+        self.assertEqual(len(rooms), 20)
+
+
+class Report(unittest.TestCase):
+    summary = {'host': 'steamdeck', 'gpu': 'AMD Custom GPU 0405', 'display': 'headless 1280x800',
+               'suite': 'quick', 'repeat': 3, 'a': 'new', 'b': 'main',
+               'scenes': [{'name': 'outset-trees-swing', 'verdict': 'identical', 'images': 160, 'max_diff': 0,
+                           'min_psnr': None, 'flicker_a': 0, 'flicker_b': 0, 'why': ''}],
+               'rooms': [{'room': 'SubD51:1:0', 'name': 'SubD51', 'flags': [],
+                          'gpu_ms': {'a': 9.1, 'b': 9.2, 'delta_pct': -1.1, 'spread': 0.3},
+                          'busy': {'a': 71.0, 'b': 72.0, 'delta_pct': -1.4, 'spread': 2.0}}]}
+
+    def test_terminal_and_github(self):
+        text = render_suite.report(self.summary, 'terminal')
+        self.assertIn('outset-trees-swing', text)
+        self.assertTrue(text.rstrip().endswith('PASS'))
+        github = render_suite.report(self.summary, 'github')
+        self.assertIn('| SubD51:1:0 | SubD51 | 9.1 | 9.2 | 71 | 72 | -1.1% | ok |', github)
+        self.assertEqual(render_suite.status(self.summary), 0)
+
+    def test_a_changed_scene_fails(self):
+        summary = json.loads(json.dumps(self.summary))
+        summary['scenes'][0]['verdict'] = 'changed'
+        self.assertEqual(render_suite.status(summary), 1)
+        self.assertTrue(render_suite.report(summary, 'terminal').rstrip().endswith('FAIL'))
+
+
+class Timeout(Work):
+    def test_a_hung_run_is_stopped_and_marked(self):
+        result = rendered_run.run(self.app('hang'), FAKE, self.dir / 'run', {}, self.dir / 'status.txt', 0,
+                                  timeout=1)
+        self.assertTrue(result['timed_out'])
+
+
+@unittest.skipUnless(HAVE_IMAGES, 'needs numpy and Pillow')
+class Check(Work):
+    def frames(self, name, dump=False):
+        env = dict(os.environ)
+        out = self.dir / name
+        out.mkdir()
+        if dump:
+            env.update(DOL_AURORA_FRAME_INTERP_DUMP=str(out), DOL_AURORA_FRAME_INTERP_DUMP_FROM='0',
+                       DOL_AURORA_FRAME_INTERP_DUMP_TO='8')
+        else:
+            env.update(BLUEWAKE_CAPTURE_OPENING_FRAME=str(out / 'frame.ppm'), BLUEWAKE_CAPTURE_RETRACE='100',
+                       BLUEWAKE_CAPTURE_INTERVAL='30', BLUEWAKE_MAX_RETRACES='280')
+        subprocess.run([str(self.app(name))], env=env, stdout=subprocess.DEVNULL, check=True)
+        return out
+
+    def check(self, a, b, *extra):
+        out = self.dir / f'{a.name}-{b.name}.json'
+        subprocess.run([sys.executable, str(SCRIPTS / 'frame_compare.py'), 'check', str(a), str(b), '--json',
+                        str(out), *extra], stdout=subprocess.DEVNULL)
+        return json.loads(out.read_text())
+
+    def test_verdicts(self):
+        plain, again = self.frames('plain'), self.frames('plain-again')
+        self.assertEqual(self.check(plain, again)['verdict'], 'identical')
+        self.assertEqual(self.check(self.frames('noise'), plain)['verdict'], 'similar')
+        self.assertEqual(self.check(self.frames('bright'), plain)['verdict'], 'changed')
+        empty = self.dir / 'empty'
+        empty.mkdir()
+        self.assertEqual(self.check(empty, plain)['verdict'], 'failed')
+
+    def test_new_flicker_fails(self):
+        result = self.check(self.frames('flicker', dump=True), self.frames('plain', dump=True),
+                            '--flicker-margin', '10')
+        self.assertEqual(result['verdict'], 'failed')
+        self.assertIn('new flicker', result['why'])
+        self.assertGreater(result['flicker_a'], result['flicker_b'])
+
+
+@unittest.skipUnless(HAVE_IMAGES, 'needs numpy and Pillow')
+class EndToEnd(Work):
+    def suite(self, a, b, *extra):
+        (self.dir / 'states').mkdir(exist_ok=True)
+        (self.dir / 'states' / 'outset_trees.bwstate').write_bytes(b'state')
+        (self.dir / 'card').write_bytes(b'card')
+        out = self.dir / f'out-{a}-{b}'
+        code = subprocess.run([sys.executable, str(SCRIPTS / 'render_suite.py'), 'run', str(self.app(a)),
+                               str(self.app(b)), str(out), '--card', str(self.dir / 'card'), '--states',
+                               str(self.dir / 'states'), '--repeat', '2', '--display', 'desktop', *extra],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT).returncode
+        return code, json.loads((out / 'summary.json').read_text())
+
+    def test_the_same_build_passes(self):
+        code, summary = self.suite('plain', 'plain-b')
+        self.assertEqual(code, 0, summary)
+        self.assertEqual({s['verdict'] for s in summary['scenes']}, {'identical'})
+        self.assertEqual(len(summary['rooms']), 3)
+
+    def test_a_different_picture_and_a_slower_gpu_fail(self):
+        code, summary = self.suite('bright-slow', 'plain')
+        self.assertEqual(code, 1)
+        self.assertEqual({s['verdict'] for s in summary['scenes']}, {'changed'})
+        self.assertTrue(all(any(f.startswith('gpu_ms +') for f in r['flags']) for r in summary['rooms']))
+
+    def test_a_missing_state_stops_before_running(self):
+        (self.dir / 'states').mkdir()
+        (self.dir / 'card').write_bytes(b'card')
+        code = subprocess.run([sys.executable, str(SCRIPTS / 'render_suite.py'), 'run', str(self.app('plain')),
+                               str(self.app('plain-b')), str(self.dir / 'out'), '--card', str(self.dir / 'card'),
+                               '--states', str(self.dir / 'states'), '--display', 'desktop'],
+                              capture_output=True, text=True)
+        self.assertEqual(code.returncode, 2)
+        self.assertIn('no state', code.stderr)
+
+
+class Wrapper(unittest.TestCase):
+    def test_help_and_bad_arguments(self):
+        script = SCRIPTS / 'render_test'
+        self.assertEqual(subprocess.run(['bash', str(script), '--help'], capture_output=True).returncode, 0)
+        bad = subprocess.run(['bash', str(script), 'a', 'b', '--suite', 'huge'], capture_output=True, text=True)
+        self.assertEqual(bad.returncode, 2)
+
+
+if __name__ == '__main__':
+    unittest.main()

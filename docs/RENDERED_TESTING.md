@@ -10,7 +10,7 @@ The short version: **a save state, a pad script and a frame dump give you the sa
 builds or two settings can be compared pixel for pixel.** The rest of this page is how to get there and what trips
 agents up.
 
-## The two scripts
+## The scripts
 
 [`scripts/rendered_run.py`](../scripts/rendered_run.py) runs the app the same way each time, once or once a
 variant, and keeps what it made: frame captures, frame dumps, its log, and what the log says about speed and GPU
@@ -54,6 +54,137 @@ prints each run and each variant's mean (game frames a second, busy, GPU busy ti
 (ambient occlusion: 0.114 and 0.122 ms a frame on an RTX 5070 Ti). Paced, game frames a second stop at 30, so compare
 busy and GPU time; `--unpaced` measures speed instead. The standard speed benchmark at fixed stops is
 [BENCHMARK_TOUR.md](BENCHMARK_TOUR.md) (`scripts/bench_tour.py`).
+
+## Build A against build B: `render_test`
+
+[`scripts/render_test`](../scripts/render_test) does all of the above for two builds in one command, on a Steam
+Deck (or any Linux machine) over SSH, or here:
+
+```
+render_test [user@host] BUILD_A BUILD_B [--suite quick|full] [--repeat 3] [--format terminal|github]
+```
+
+A build is an AppImage, or a folder holding `BlueWake-x86_64.AppImage`. B is the reference: there are no stored
+reference images. Every scene starts from a save state, so A and B make the same frames unless the rendering
+changed. Two things run, both through the scripts above:
+
+- **Scenes** ([`scripts/render_scenes.json`](../scripts/render_scenes.json)): each is a `rendered_run.py` run per
+  build from a save state, with its pad script, captures or Smooth Motion dump and settings. Then
+  `frame_compare.py check A B` gives a verdict. **identical**: every pixel is the same. **similar**: every image's
+  PSNR is at least the scene's `min_psnr` (default 40). **changed**: an image's PSNR is below that. **failed**: a
+  run crashed, timed out, started in safe mode or made no frames, the image sets differ, or A blinks more than B
+  (flicker).
+- **Rooms**: [`scripts/bench_rooms.py`](../scripts/bench_rooms.py) over the costliest stage-select rooms
+  ([`scripts/bench_rooms.tsv`](../scripts/bench_rooms.tsv), the October 25 sweep). The quick suite runs the top 3,
+  the full suite the top 10. A and B alternate in each room, `--repeat` runs each. A room is flagged when A's GPU
+  time or busy % differs from B's by more than 5% and more than twice the spread between repeats.
+
+The quick suite runs the scenes marked `quick` and the top 3 rooms.
+`--suite full` runs every scene and the top 10 rooms. The exit code is 0 when everything passed, 1
+when a scene changed or failed or a room was flagged, and 2 when the setup is wrong (a missing state, card,
+display, or numpy/Pillow).
+
+**Examples:**
+
+```
+# Over SSH on the Deck: a branch build against main (folders from build_script, or AppImages)
+export BLUEWAKE_DECK_PASSWORD='temporary password'      # or SSH keys
+scripts/render_test deck@10.10.20.168 build/artifacts/gpr/latest build/artifacts/main/latest
+
+# The same here, with the table ready to paste into a PR
+scripts/render_test build/artifacts/gpr/latest build/artifacts/main/latest --format github
+
+# Every scene and the top 10 rooms, five runs a room, with the worst image of each scene copied back
+scripts/render_test deck@10.10.20.168 new.AppImage main.AppImage --suite full --repeat 5 --fetch
+
+# A Deck in Desktop Mode without gamescope's headless backend: use the running session
+scripts/render_test deck@10.10.20.168 new.AppImage main.AppImage --display desktop
+
+# Only the scenes, or only the rooms, by hand: render_suite.py is what render_test runs on the target
+python3 scripts/render_suite.py run new.AppImage main.AppImage out/rt --card my.card --states states/
+python3 scripts/render_suite.py report out/rt/summary.json --format github
+```
+
+**Output.** The run streams each scene's and room's runs, then prints a table like this one (the numbers are
+illustrative):
+
+```
+A (candidate): gpr
+  /home/me/bluewake/build/artifacts/gpr/latest/BlueWake-x86_64.AppImage
+B (reference): main
+  /home/me/bluewake/build/artifacts/main/latest/BlueWake-x86_64.AppImage
+Checking deck@10.10.20.168...
+Evidence on target: deck@10.10.20.168:/home/deck/bluewake-render/runs/gpr-vs-main-20261028T214500Z
+Staging builds and harness...
+== 2 scene(s) on steamdeck (AMD Custom GPU 0405 (RADV VANGOGH), headless 1280x800)
+== scene 1/2: outset-trees-swing
+A: exit 1 after 31 s, 0 frames, 160 dumped images
+B: exit 1 after 30 s, 0 frames, 160 dumped images
+changed: 160 images, 41 differ, max diff 96, min PSNR 31.2, flicker A 0 B 212 (52-between PSNR 31.2 < 40.0)
+...
+== rooms: the costliest 3, 3 run(s) each build
+...
+
+Rendered tests: A gpr against B main
+steamdeck, AMD Custom GPU 0405 (RADV VANGOGH), display headless 1280x800, quick suite, 3 run(s) a room
+
+scene               verdict    images  max diff  min PSNR  flicker A/B  why
+outset-trees-swing  CHANGED    160     96        31.2      0/212        52-between PSNR 31.2 < 40.0
+outset-trees-still  IDENTICAL  10      0         -         0/0
+
+room        name            GPU ms A  GPU ms B  busy% A  busy% B  GPU Δ   flag
+SubD51:1:0  SubD51          11.42     11.51     78.5     79.1     -0.8%   ok
+Hyroom:0:0  Inside (day 0)  9.87      9.80      74.2     73.9     +0.7%   ok
+WarpD:0:0   Warp maze       12.90     11.61     81.0     80.4     +11.1%  gpu_ms +11.1%
+
+FAIL
+
+Summary: /home/me/bluewake/build/render-tests/gpr-vs-main-20261028T214500Z/summary.json
+```
+
+Here the swing scene changed because A fixed B's flicker (0 blink pixels against 212). `--fetch` copies each
+scene's `worst.png` (A, B and their difference, x8) back to look at. A **changed** verdict means "look at it", not
+"wrong". The Warp maze is 11% slower on the GPU, well outside the spread between runs. With `--format github` the
+same tables come out as Markdown.
+
+**What stays where.** Builds, the card, save states and every frame stay on the target, in
+`~/bluewake-render/runs/<A>-vs-<B>-<time>/` (the run folder, `out/scenes/<scene>/A|B`, `out/rooms/`, `suite.log`).
+Only `summary.json` (and with `--fetch` the `worst.png` sheets) comes back, to `build/render-tests/`. Nothing is
+uploaded anywhere else, so none of this runs in CI. CI runs `tests/test_render_suite.py`, which drives the same
+scripts end to end with a fake app (`tests/render_fixtures/fake_bluewake.py`) that writes frames and log lines.
+
+**One-time setup on the target:**
+
+- the card: `~/.local/share/BlueWake/GZLE01.card` (`--card` for another). Each run gets a copy.
+- the scenes' save states, named as in `render_scenes.json` (all four scenes use `outset_trees.bwstate` for now:
+  Outset's small trees, saved just before the swings, see Save states below), in `~/bluewake-render/states/` on a
+  remote target or `~/.local/share/BlueWake/render-states/` here (`--states-dir` for another).
+- a display. `--display auto` (the default) runs the game under `gamescope --backend headless` when gamescope is
+  there (SteamOS has it), at 1280x800 on a Deck (`--size` for another). Without it, the game uses the running
+  desktop session (Desktop Mode on a Deck, `DISPLAY=:0`).
+- numpy and Pillow. If `python3` lacks them, they are installed once into `~/bluewake-render/.venv`.
+
+**Adding a scene.** Make a state (F5, or `BLUEWAKE_SAVE_STATE=FILE@RETRACE`), put it in the states folder, and add
+an entry to `render_scenes.json`:
+
+```json
+{
+ "name": "windfall-night-lights",
+ "about": "what it covers",
+ "suite": "full",
+ "state": "windfall_night.bwstate",
+ "max_retraces": 2400,
+ "capture": "2100:30",
+ "set": ["BLUEWAKE_HD_LOOK=1"],
+ "region": "0,0.1,1,0.9",
+ "min_psnr": 40
+}
+```
+
+Required: `name`, `state`, `max_retraces` (counted from the state's own retrace), and `capture` or `dump` (`dump`
+also needs `smooth`). Optional: `pad`, `scale`, `set`, `region` (to leave the HUD out), `min_psnr`, `flicker_margin`
+(default 50 blink pixels), `timeout` (seconds, default 600) and `suite` (`quick` by default). `python3
+scripts/render_suite.py validate` checks the file. CI runs it too.
 
 ## Rules to give the agent first
 

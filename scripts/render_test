@@ -1,0 +1,263 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: render_test [user@host] <build-A> <build-B> [options]
+
+Rendered tests of build A against build B (the reference): the scenes in
+scripts/render_scenes.json from save states, frame for frame, and the
+costliest stage-select rooms' GPU time and busy %, A and B alternating.
+With user@host it runs there over SSH (a Steam Deck or any Linux machine);
+without it, here. docs/RENDERED_TESTING.md has the details.
+
+A build is an AppImage, or a folder with BlueWake-x86_64.AppImage (or one
+unique *.AppImage) in it, as scripts/linux/build.py and the Deck helpers leave.
+
+Options:
+  --suite quick|full        quick: 2 scenes, top 3 rooms; full: every scene,
+                            top 10 rooms (default: quick)
+  --repeat N                runs per build per room (default: 3)
+  --format terminal|github  the final table (default: terminal)
+  --card PATH               memory card on the target; never changed
+                            (default: ~/.local/share/BlueWake/GZLE01.card)
+  --states-dir PATH         the scenes' save states on the target
+                            (default remote: ~/bluewake-render/states,
+                             local: ~/.local/share/BlueWake/render-states)
+  --run-directory PATH      where runs go on the target
+                            (default remote: ~/bluewake-render/runs,
+                             local: build/render-tests)
+  --display auto|headless|desktop
+                            headless runs the game under gamescope; desktop
+                            uses the running session (Desktop Mode on a Deck)
+                            (default: auto, gamescope if there is one)
+  --size WxH                headless size (default 1280x800 on a Deck)
+  --fetch                   copy each scene's worst.png (A, B, difference)
+                            back from a remote run
+  -h, --help                this help
+
+Environment:
+  BLUEWAKE_DECK_PASSWORD    use sshpass with this password; otherwise SSH
+                            keys or one prompt. One connection is reused.
+
+Exit: 0 everything passed, 1 a scene failed or changed or a room was flagged,
+2 a usage or setup error. Builds, card, states and frames stay on the target;
+only summary.json (and with --fetch the worst.png sheets) comes back.
+EOF
+}
+
+die() {
+    printf 'render_test: %s\n' "$*" >&2
+    exit 2
+}
+
+find_image() {
+    local given=$1 directory preferred count
+    if [[ -f "$given" ]]; then
+        realpath "$given"
+        return
+    fi
+    [[ -d "$given" ]] || die "no such build: $given"
+    directory=$(realpath "$given")
+    preferred="$directory/BlueWake-x86_64.AppImage"
+    if [[ -s "$preferred" ]]; then
+        printf '%s\n' "$preferred"
+        return
+    fi
+    mapfile -d '' images < <(find "$directory" -maxdepth 2 -type f -name '*.AppImage' -print0)
+    count=${#images[@]}
+    [[ $count -eq 1 ]] || die "$directory: expected BlueWake-x86_64.AppImage or one unique AppImage; found $count"
+    printf '%s\n' "${images[0]}"
+}
+
+build_label() {
+    local given=$1
+    [[ -d "$given" ]] && basename "$(realpath "$given")" || basename "$given" .AppImage
+}
+
+[[ ${1:-} == -h || ${1:-} == --help ]] && { usage; exit 0; }
+
+target=
+if [[ ${1:-} =~ ^[a-zA-Z0-9._-]+@[a-zA-Z0-9.:-]+$ ]]; then
+    target=$1
+    shift
+fi
+[[ $# -ge 2 ]] || { usage >&2; exit 2; }
+build_a=$1
+build_b=$2
+shift 2
+
+suite=quick
+repeat=3
+output_format=terminal
+card=
+states=
+run_parent=
+display=auto
+size=
+fetch=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --suite) suite=${2:?--suite needs quick or full}; shift ;;
+        --repeat) repeat=${2:?--repeat needs a number}; shift ;;
+        --format) output_format=${2:?--format needs terminal or github}; shift ;;
+        --card) card=${2:?--card needs a path}; shift ;;
+        --states-dir) states=${2:?--states-dir needs a path}; shift ;;
+        --run-directory) run_parent=${2:?--run-directory needs a path}; shift ;;
+        --display) display=${2:?--display needs auto, headless or desktop}; shift ;;
+        --size) size=${2:?--size needs WxH}; shift ;;
+        --fetch) fetch=1 ;;
+        -h|--help) usage; exit 0 ;;
+        *) die "unknown argument: $1" ;;
+    esac
+    shift
+done
+[[ "$suite" == quick || "$suite" == full ]] || die "--suite must be quick or full"
+[[ "$repeat" =~ ^[1-9][0-9]*$ ]] || die "--repeat must be a positive number"
+[[ "$output_format" == terminal || "$output_format" == github ]] || die "--format must be terminal or github"
+[[ "$display" =~ ^(auto|headless|desktop)$ ]] || die "--display must be auto, headless or desktop"
+[[ -z "$size" || "$size" =~ ^[0-9]+x[0-9]+$ ]] || die "--size must be WxH"
+for path in "$card" "$states" "$run_parent"; do
+    [[ -z "$path" || "$path" =~ ^[~a-zA-Z0-9._/-]+$ ]] || die "paths must not contain spaces: $path"
+done
+
+scripts=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+repo=$(dirname "$scripts")
+harness=(render_suite.py rendered_run.py frame_compare.py bench_rooms.py bench_rooms.tsv render_scenes.json)
+for file in "${harness[@]}"; do
+    [[ -f "$scripts/$file" ]] || die "missing beside render_test: $file"
+done
+python3 "$scripts/render_suite.py" validate >/dev/null || die "scripts/render_scenes.json is not valid"
+
+image_a=$(find_image "$build_a")
+image_b=$(find_image "$build_b")
+label_a=$(build_label "$build_a")
+label_b=$(build_label "$build_b")
+safe_a=$(printf '%s' "$label_a" | tr -c 'a-zA-Z0-9._-' '_')
+safe_b=$(printf '%s' "$label_b" | tr -c 'a-zA-Z0-9._-' '_')
+[[ "$safe_a" != "$safe_b" ]] || { safe_a="$safe_a-A"; safe_b="$safe_b-B"; }
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+run_name="${safe_a}-vs-${safe_b}-$stamp"
+local_results="$repo/build/render-tests/$run_name"
+
+# The suite itself, the same here and on a remote machine: $1 the run folder
+# (with the harness in harness/), then the options. Missing numpy or Pillow
+# are installed once into a venv beside the runs. Over SSH this script is
+# read from stdin, so nothing it starts may read stdin.
+read -r -d '' DRIVER <<'REMOTE' || true
+set -euo pipefail
+root=$1 app_a=$2 app_b=$3 card=$4 states=$5 suite=$6 repeat=$7 display=$8 size=$9 label_a=${10} label_b=${11}
+card=${card/#\~/$HOME}
+states=${states/#\~/$HOME}
+python=python3
+if ! python3 -c 'import numpy, PIL' 2>/dev/null; then
+    venv="$(dirname "$root")/.venv"
+    if [[ ! -x "$venv/bin/python" ]] || ! "$venv/bin/python" -c 'import numpy, PIL' 2>/dev/null; then
+        echo "Installing numpy and Pillow into $venv (once)..."
+        python3 -m venv "$venv"
+        "$venv/bin/python" -m pip install --quiet --disable-pip-version-check numpy pillow </dev/null
+    fi
+    python="$venv/bin/python"
+fi
+extra=()
+[[ -n "$size" ]] && extra+=(--size "$size")
+cd "$root"
+set +e
+"$python" -u harness/render_suite.py run "$app_a" "$app_b" "$root/out" --card "$card" --states "$states" \
+    --suite "$suite" --repeat "$repeat" --display "$display" --label-a "$label_a" --label-b "$label_b" \
+    "${extra[@]}" </dev/null 2>&1 | tee "$root/suite.log"
+exit "${PIPESTATUS[0]}"
+REMOTE
+
+printf 'A (candidate): %s\n  %s\n' "$label_a" "$image_a"
+printf 'B (reference): %s\n  %s\n' "$label_b" "$image_b"
+mkdir -p "$local_results"
+status=0
+
+if [[ -z "$target" ]]; then
+    card=${card:-~/.local/share/BlueWake/GZLE01.card}
+    states=${states:-~/.local/share/BlueWake/render-states}
+    run_parent=${run_parent:-$repo/build/render-tests}
+    root="${run_parent/#\~/$HOME}/$run_name"
+    mkdir -p "$root/harness"
+    for file in "${harness[@]}"; do
+        ln -sf "$scripts/$file" "$root/harness/$file"
+    done
+    printf 'Running here, evidence in %s\n' "$root"
+    bash -c "$DRIVER" render_test "$root" "$image_a" "$image_b" "$card" "$states" "$suite" "$repeat" \
+        "$display" "$size" "$label_a" "$label_b" || status=$?
+    [[ -f "$root/out/summary.json" && "$root" != "$local_results" ]] &&
+        cp "$root/out/summary.json" "$local_results/summary.json"
+    [[ "$root" == "$local_results" ]] && ln -sf out/summary.json "$local_results/summary.json"
+else
+    for dependency in ssh scp sha256sum; do
+        command -v "$dependency" >/dev/null || die "missing local dependency: $dependency"
+    done
+    control_directory=$(mktemp -d "${TMPDIR:-/tmp}/render-test-ssh.XXXXXX")
+    control_path="$control_directory/control"
+    cleanup() {
+        ssh -F /dev/null -o BatchMode=yes -o ControlPath="$control_path" -O exit "$target" >/dev/null 2>&1 || true
+        rm -rf "$control_directory"
+    }
+    trap cleanup EXIT
+    trap 'exit 130' HUP INT TERM
+    ssh_options=(-F /dev/null -o StrictHostKeyChecking=no -o ControlMaster=auto -o ControlPersist=60
+                 -o ControlPath="$control_path")
+    if [[ -n ${BLUEWAKE_DECK_PASSWORD:-} ]]; then
+        command -v sshpass >/dev/null || die "missing local dependency: sshpass"
+        ssh_command=(sshpass -p "$BLUEWAKE_DECK_PASSWORD" ssh "${ssh_options[@]}")
+        scp_command=(sshpass -p "$BLUEWAKE_DECK_PASSWORD" scp "${ssh_options[@]}")
+    else
+        ssh_command=(ssh "${ssh_options[@]}")
+        scp_command=(scp "${ssh_options[@]}")
+    fi
+    card=${card:-'~/.local/share/BlueWake/GZLE01.card'}
+    states=${states:-'~/bluewake-render/states'}
+    run_parent=${run_parent:-'~/bluewake-render/runs'}
+
+    printf 'Checking %s...\n' "$target"
+    root=$("${ssh_command[@]}" "$target" bash -s -- "$run_parent" "$run_name" "$card" "$states" <<'CHECK'
+set -eu
+parent=${1/#\~/$HOME} card=${3/#\~/$HOME} states=${4/#\~/$HOME}
+for command in bash python3 sha256sum tee; do
+    command -v "$command" >/dev/null || { echo "missing on target: $command" >&2; exit 2; }
+done
+test -s "$card" || { echo "no memory card at $card" >&2; exit 2; }
+test -d "$states" || { echo "no save states folder at $states" >&2; exit 2; }
+mkdir -p "$parent/$2/harness"
+printf '%s\n' "$parent/$2"
+CHECK
+) || die "target check failed"
+    printf 'Evidence on target: %s:%s\n' "$target" "$root"
+
+    printf 'Staging builds and harness...\n'
+    hash_a=$(sha256sum "$image_a" | cut -d' ' -f1)
+    hash_b=$(sha256sum "$image_b" | cut -d' ' -f1)
+    "${scp_command[@]}" -q "$image_a" "$target:$root/$safe_a.AppImage"
+    "${scp_command[@]}" -q "$image_b" "$target:$root/$safe_b.AppImage"
+    "${scp_command[@]}" -q "${harness[@]/#/$scripts/}" "$target:$root/harness/"
+    "${ssh_command[@]}" "$target" "chmod 0755 '$root/$safe_a.AppImage' '$root/$safe_b.AppImage' &&
+        test \"\$(sha256sum '$root/$safe_a.AppImage' | cut -d' ' -f1)\" = '$hash_a' &&
+        test \"\$(sha256sum '$root/$safe_b.AppImage' | cut -d' ' -f1)\" = '$hash_b'" ||
+        die "the copied builds do not match"
+
+    "${ssh_command[@]}" "$target" bash -s -- "$root" "$root/$safe_a.AppImage" "$root/$safe_b.AppImage" \
+        "$card" "$states" "$suite" "$repeat" "$display" "${size:-}" "$label_a" "$label_b" <<<"$DRIVER" || status=$?
+    "${scp_command[@]}" -q "$target:$root/out/summary.json" "$local_results/summary.json" 2>/dev/null || true
+    if [[ $fetch -eq 1 ]]; then
+        "${ssh_command[@]}" "$target" "cd '$root/out/scenes' 2>/dev/null && ls -d */worst.png 2>/dev/null" |
+            while read -r sheet; do
+                mkdir -p "$local_results/$(dirname "$sheet")"
+                "${scp_command[@]}" -q "$target:$root/out/scenes/$sheet" "$local_results/$sheet" </dev/null
+            done
+    fi
+fi
+
+if [[ ! -s "$local_results/summary.json" ]]; then
+    printf 'render_test: the suite wrote no summary (exit %s); see suite.log in the run folder\n' "$status" >&2
+    exit $((status == 0 ? 2 : status))
+fi
+printf '\n'
+python3 "$scripts/render_suite.py" report "$local_results/summary.json" --format "$output_format" || true
+printf '\nSummary: %s\n' "$local_results/summary.json"
+exit "$status"
