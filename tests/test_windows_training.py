@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -235,6 +236,19 @@ class TrainingTest(unittest.TestCase):
             self.b.args.fixed_mem1 = True;self.assertNotEqual(original, self.b.training_fingerprint());self.b.args.fixed_mem1 = False
             host.write_text("new");self.assertNotEqual(original, self.b.training_fingerprint());host.write_text("old")
             self.b.git = lambda *a: "runtime2";self.assertNotEqual(original, self.b.training_fingerprint())
+
+
+class GatherAliasCachePolicyTest(unittest.TestCase):
+    """The gather alias cache is in normal Windows builds, as on Linux, with an opt-out for a control build."""
+
+    def test_normal_windows_build_enables_the_cache(self):
+        self.assertIn("gather_alias_cache", bw.WINDOWS_DEFAULT_OPTIMIZATIONS)
+
+    def test_builder_exposes_an_explicit_control_opt_out(self):
+        result = subprocess.run([sys.executable, str(REPO / "scripts/windows/build.py"), "--help"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("--no-gather-alias-cache", result.stdout)
 
 
 if __name__ == "__main__":
