@@ -74,7 +74,7 @@ changed. Two things run, both through the scripts above:
 - **Scenes** ([`scripts/render_scenes.json`](../scripts/render_scenes.json)): each is a `rendered_run.py` run per
   build from a save state, with its pad script, captures or Smooth Motion dump and settings. The main one is the
   **benchmark tour, rendered**: the same five stops as [`bench_tour.py`](BENCHMARK_TOUR.md) (Outset, Windfall,
-  Dragon Roost Cavern, Forest Haven, the sea by the Fortress) from its start state, warped every 1800 retraces
+  Dragon Roost Cavern, Forest Haven, the sea by the Fortress) from a state at Outset, warped every 1800 retraces
   (`BLUEWAKE_TEST_WARP`). A capture every 300 retraces after each stop's first 300 gives five images a stop, and
   each stop is judged as a scene of its own. Then
   `frame_compare.py check A B` gives a verdict. **identical**: every pixel is the same. **similar**: every image's
@@ -125,8 +125,10 @@ B (reference): main
 Checking deck@10.10.20.168...
 Evidence on target: deck@10.10.20.168:/home/deck/bluewake-render/runs/gpr-vs-main-20261028T214500Z
 Staging builds and harness...
-== making tour.bwstate: the benchmark tour's start (quest log 1 on Outset, saved at 2390)
-== made /home/deck/bluewake-render/states/tour.bwstate at retrace 2390
+== making tour.bwstate: warp sea:44:0:0, saved 180 retraces after Link arrives
+== quest log 1 did not get there (empty)
+== quest log 2 did not get there (empty)
+== made /home/deck/bluewake-render/states/tour.bwstate at retrace 5231, from quest log 3
 == 2 scene(s) on steamdeck (AMD Custom GPU 0405 (RADV VANGOGH), headless 1280x800)
 == scene 1/2: tour
 A: running 30 s, last: [perf] retrace=4140 rate=59.9 worst_ms=17.0 hitches=0 busy=58%
@@ -195,22 +197,23 @@ scripts end to end with a fake app (`tests/render_fixtures/fake_bluewake.py`) th
 - the disc, as for playing: each run gets a fresh data folder, and `rendered_run.py` copies the player's `disc.txt`
   and `game.txt` into it (on Linux the app keeps which disc to read there).
 
-**Save states from a recipe.** `render_scenes.json` has a `states` section. Every scene now uses one state, the
-benchmark tour's start:
+**Save states from a recipe.** `render_scenes.json` has a `states` section. Every scene now uses one state, at
+Outset, the benchmark tour's first stop:
 
 ```json
-"tour.bwstate": {"tour": true}
+"tour.bwstate": {"warp": "sea:44:0:0", "settle": 180}
 ```
 
-It is made exactly as `bench_tour.py` makes it: `card_set_restart.py` copies the card and puts quest log 1 on
-Outset (`sea 44 0`), so it works with any card that has a Wind Waker save. Then one headless run continues that
-save and saves the state at retrace 2390. The copied card is kept beside it (`tour.card`), and the scenes from that
-state use it. `benchmark_on_steamdeck`'s `state.json` is the same state.
+To make it, the suite warps there with the stage select and reads the log for the first `[perf]` retrace after
+`[warp] arrived`. Then it warps again and saves the state `settle` retraces after that. It tries quest logs `file`
+(default 1), 1, 2 and 3 until one gets there, and an empty one ends its try at once. So it works with any card that
+has a Wind Waker save in any quest log. Starting from a state with the stage select has a reason: a quest log the
+game sees as empty starts a new game, and a state saved then is in the opening, where the tour's warps do nothing.
+`bench_tour.py`'s own setup continues quest log 1 and would do exactly that on a card whose save is in another
+log.
 
-A recipe can also warp somewhere with the stage select instead: `{"warp": "sea:44:8:0", "time": "noon", "file": 1,
-"settle": 180}`. The suite warps there once and reads the log for the first `[perf]` retrace after `[warp]
-arrived`. Then it warps again and saves the state `settle` retraces after that. It tries quest logs `file`, 1, 2
-and 3 until one gets there, and an empty one ends its try at once.
+The tour's warps (`BLUEWAKE_TEST_WARP`) are timed from the state: the first stop 10 retraces after it, then one
+every 1800, as in `bench_tour.py`.
 
 **Adding a scene.** Scenes count their retraces from their state, so a state made again (at a slightly different
 retrace, as a warp from boot is not frame-exact) still fits. The suite reads the state's retrace from its header

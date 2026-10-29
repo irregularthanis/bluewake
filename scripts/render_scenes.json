@@ -1,8 +1,9 @@
 {
  "states": {
   "tour.bwstate": {
-   "about": "The benchmark tour's start (scripts/bench_tour.py): the card's quest log 1 put on Outset, continued headless, saved at retrace 2390",
-   "tour": true
+   "about": "Outset (sea 44 0), the benchmark tour's first stop: the first of the card's quest logs 1-3 with a save, 3 s after Link arrives",
+   "warp": "sea:44:0:0",
+   "settle": 180
   }
  },
  "scenes": [

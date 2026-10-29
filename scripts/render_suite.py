@@ -97,9 +97,9 @@ def validate(scenes, recipes=None):
     """Problems with a manifest's scenes and state recipes, as messages."""
     problems, names = [], set()
     for state, recipe in (recipes or {}).items():
-        if not recipe.get("tour") and not re.match(r"^[A-Za-z0-9_]+:\d+:\d+(:\d+)?$", str(recipe.get("warp", ""))):
-            problems.append(f"state {state}: give tour: true, or warp as stage:room:point[:layer]")
-        unknown = set(recipe) - {"about", "tour", "warp", "time", "file", "settle"}
+        if not re.match(r"^[A-Za-z0-9_]+:\d+:\d+(:\d+)?$", str(recipe.get("warp", ""))):
+            problems.append(f"state {state}: warp must be stage:room:point[:layer]")
+        unknown = set(recipe) - {"about", "warp", "time", "file", "settle"}
         if unknown:
             problems.append(f"state {state}: unknown keys {', '.join(sorted(unknown))}")
     for i, s in enumerate(scenes):
@@ -191,17 +191,18 @@ def gpu_name():
         return ""
 
 
-def tour_timing(scene):
-    """A tour scene as rendered_run.py options, and its stops as (name, first retrace, end retrace)."""
+def tour_timing(scene, base):
+    """A tour scene as rendered_run.py options, and its stops as (name, first retrace, end retrace). The tour
+    is scripts/bench_tour.py's, warped every 1800 retraces from just after the state (retrace BASE)."""
     import bench_tour
     stops = bench_tour.DEFAULT_STOPS if scene["tour"] == "default" else bench_tour.UNTRAINED_STOPS
-    every = scene["every"]
-    timed = {"max_retraces": bench_tour.tour_end(stops),
-             "capture": f"{bench_tour.START + bench_tour.SETTLE}:{every}",
-             "set": [*scene.get("set", []), f"BLUEWAKE_TEST_WARP={bench_tour.warp_string(stops)}"]}
+    every, start = scene["every"], base + 10
+    timed = {"max_retraces": bench_tour.tour_end(stops, start=start),
+             "capture": f"{start + bench_tour.SETTLE}:{every}",
+             "set": [*scene.get("set", []), f"BLUEWAKE_TEST_WARP={bench_tour.warp_string(stops, start=start)}"]}
     windows = []
     for i, stop in enumerate(stops):
-        first = bench_tour.START + i * 1800
+        first = start + i * 1800
         slug = re.sub(r"[^a-z0-9]+", "-", stop.name.lower()).strip("-")
         windows.append((f"{scene['name']}-{i + 1}-{slug}", first + bench_tour.SETTLE, first + 1800))
     return timed, windows
@@ -228,12 +229,11 @@ def collect_scene(scene, apps, out, args, env):
     back as one row a stop."""
     folder = out / "scenes" / scene["name"]
     state = Path(args.states) / scene["state"]
-    card = state_card(state) if state_card(state).is_file() else Path(args.card)
-    cmd = [sys.executable, str(HERE / "rendered_run.py"), str(apps["A"]), str(folder), "--card", str(card),
+    cmd = [sys.executable, str(HERE / "rendered_run.py"), str(apps["A"]), str(folder), "--card", str(args.card),
            "--state", str(state), "--timeout", str(scene.get("timeout", 600 if not scene.get("tour") else 1200))]
     windows = None
     if scene.get("tour"):
-        timed, windows = tour_timing(scene)
+        timed, windows = tour_timing(scene, state_retrace(state))
         timed = {**scene, **timed}
     else:
         timed = {**scene, **shifted(scene, state_retrace(state))}
@@ -368,41 +368,6 @@ def warp_run(app, folder, recipe, quest_log, args, env, stop_after, extra=()):
     return log.read_text(errors="replace") if log.exists() else ""
 
 
-def make_tour_state(name, app, out, args, env):
-    """The benchmark tour's start (scripts/bench_tour.py): the card's quest log 1 put on Outset
-    (card_set_restart.py), continued headless, saved at retrace 2390. Its card is kept beside it."""
-    import bench_tour
-    path = Path(args.states) / name
-    folder = out / "make-state" / Path(name).stem
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / "settings.ini").write_text("")
-    card = folder / "GZLE01.card"
-    print(f"== making {name}: the benchmark tour's start (quest log 1 on Outset, saved at {bench_tour.SAVE_AT})",
-          flush=True)
-    if subprocess.run(bench_tour.card_restart_argv(args.card, card)).returncode != 0:
-        return f"{name}: card_set_restart.py could not put quest log 1 on Outset"
-    made = folder / "made.bwstate"
-    made.unlink(missing_ok=True)
-    setup = bench_tour.setup_environment(env, scratch=folder, card=card, state_path=made.resolve())
-    with open(folder / "setup.log", "w") as log:
-        code = subprocess.run([str(app)], env=setup, stdout=log, stderr=subprocess.STDOUT, timeout=900).returncode
-    # The save lands on the first retrace at or after the one asked for (2391 for 2390), as bench_tour.py's
-    # SETUP_CAP (2392) allows.
-    retrace = state_retrace(made)
-    if retrace is None or not bench_tour.SAVE_AT <= retrace <= bench_tour.SETUP_CAP:
-        return f"{name}: the headless setup (exit {code}) saved no state (see {folder / 'setup.log'})"
-    Path(args.states).mkdir(parents=True, exist_ok=True)
-    shutil.move(str(made), str(path))
-    shutil.copy(card, state_card(path))
-    print(f"== made {path} at retrace {retrace}", flush=True)
-    return None
-
-
-def state_card(state):
-    """The card a made state was made with, kept beside it (NAME.card)."""
-    return Path(state).with_suffix(".card")
-
-
 def make_state(name, recipe, app, out, args, env):
     """Make a scene's save state from its recipe: warp there, see when Link arrives, then warp again and save
     the state `settle` retraces later (the camera and the room settled). Returns a message on failure."""
@@ -467,8 +432,7 @@ def collect(args):
                "display": f"{mode} {size}" if mode == "headless" else mode, "suite": args.suite,
                "repeat": args.repeat, "a": args.label_a, "b": args.label_b, "scene_list": scenes, "scenes": []}
     for name in to_make:
-        failed = (make_tour_state(name, Path(args.app_b).resolve(), out, args, env) if recipes[name].get("tour")
-                  else make_state(name, recipes[name], apps["B"], out, args, env))
+        failed = make_state(name, recipes[name], apps["B"], out, args, env)
         if failed:
             print(f"render_suite: {failed}", file=sys.stderr)
             return 2

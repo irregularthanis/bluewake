@@ -10,8 +10,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest import mock
-import argparse
 
 ROOT = Path(__file__).parents[1]
 SCRIPTS = ROOT / 'scripts'
@@ -64,7 +62,7 @@ class Manifest(unittest.TestCase):
         text = '\n'.join(problems)
         for expected in ('dump needs smooth', 'name used twice', 'no state', 'length (retraces after the state)',
                          'unknown keys colour', 'b: give capture or dump', "pad press '1885:B:6'",
-                         'state s: give tour: true, or warp'):
+                         'state s: warp must be stage:room:point'):
             self.assertIn(expected, text)
 
 
@@ -219,19 +217,17 @@ class EndToEnd(Work):
                                              'tour-4-forest-haven', 'tour-5-sea-by-the-fortress', 'outset-swing'])
                 self.assertEqual({s['why'] for s in summary['scenes']}, {'frames differ but were not copied here'})
 
-    def test_the_tour_state_is_made_and_kept_with_its_card(self):
+    def test_a_placeholder_state_is_made_from_its_recipe(self):
         (self.dir / 'states').mkdir()
         (self.dir / 'states' / 'tour.bwstate').write_bytes(b's\n')  # a placeholder: the game hangs on it
         (self.dir / 'card').write_bytes(b'card')
-        args = argparse.Namespace(card=str(self.dir / 'card'), states=str(self.dir / 'states'))
-        copy = lambda source, dest: [sys.executable, '-c', 'import shutil, sys; shutil.copy(*sys.argv[1:])',
-                                     str(source), str(dest)]  # card_set_restart.py needs a real card
-        with mock.patch('bench_tour.card_restart_argv', copy):
-            failed = render_suite.make_tour_state('tour.bwstate', self.app('plain'), self.dir / 'out', args,
-                                                  dict(os.environ))
-        self.assertIsNone(failed)
-        self.assertEqual(render_suite.state_retrace(self.dir / 'states' / 'tour.bwstate'), 2391)
-        self.assertEqual((self.dir / 'states' / 'tour.card').read_bytes(), b'card')
+        code = subprocess.run([sys.executable, str(SCRIPTS / 'render_suite.py'), 'collect', str(self.app('plain')),
+                               str(self.app('plain-b')), str(self.dir / 'out'), '--card', str(self.dir / 'card'),
+                               '--states', str(self.dir / 'states'), '--repeat', '1', '--display', 'desktop'],
+                              capture_output=True, text=True)
+        self.assertEqual(code.returncode, 0, code.stdout + code.stderr)
+        # the fake's warp arrives just before its [perf] at 840; the recipe settles 180; the save lands one later
+        self.assertEqual(render_suite.state_retrace(self.dir / 'states' / 'tour.bwstate'), 1021)
 
     def test_the_tour_is_one_scene_a_stop(self):
         code, summary = self.suite('plain', 'plain-b')
