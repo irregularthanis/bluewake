@@ -249,12 +249,14 @@ def compare_rooms(rows, floor):
 def collect(args):
     scenes = scenes_for(args.scenes, args.suite)
     problems = validate(scenes)
-    missing = [s["state"] for s in scenes if not (Path(args.states) / s["state"]).is_file()]
+    # A real state is megabytes; a few bytes is a placeholder, which the game hangs on.
+    missing = [s["state"] for s in scenes
+               if not (Path(args.states) / s["state"]).is_file() or (Path(args.states) / s["state"]).stat().st_size < 4096]
     if problems or missing:
         for p in problems:
             print(f"render_suite: {p}", file=sys.stderr)
         for m in missing:
-            print(f"render_suite: no state {Path(args.states) / m}", file=sys.stderr)
+            print(f"render_suite: no state (or a placeholder of a few bytes) at {Path(args.states) / m}", file=sys.stderr)
         return 2
     if not Path(args.card).is_file():
         print(f"render_suite: no card at {args.card}", file=sys.stderr)

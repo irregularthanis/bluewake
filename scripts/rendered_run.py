@@ -54,6 +54,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -116,6 +117,20 @@ def variables(args):
     return env
 
 
+def stop(process):
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (AttributeError, OSError):
+        process.kill()
+
+
+def last_line(log):
+    """The game's last log line so far (not gamescope's), to show a run is moving."""
+    lines = [l for l in log.read_text(errors="replace").splitlines()
+             if l.strip() and not l.startswith(("[gamescope]", ">", "The XKEYBOARD", "Errors from xkbcomp"))]
+    return f"last: {lines[-1][:100]}" if lines else "nothing from the game yet"
+
+
 def run(app, card, folder, env, status, skip, timeout=None):
     folder.mkdir(parents=True, exist_ok=True)
     data = folder / "data"
@@ -145,14 +160,20 @@ def run(app, card, folder, env, status, skip, timeout=None):
     start = time.time()
     with open(folder / "log.txt", "w") as log:
         # A GUI program on Windows: waiting on it here waits for the game to close.
+        # Its own process group, so a timeout also ends what it started (gamescope, the AppImage's game).
         process = subprocess.Popen([str(app)], env=full, cwd=str(Path(app).parent), stdout=log,
-                                   stderr=subprocess.STDOUT)
-        try:
-            code = process.wait(timeout=timeout)
-            timed_out = False
-        except subprocess.TimeoutExpired:
-            process.kill()
-            code, timed_out = process.wait(), True
+                                   stderr=subprocess.STDOUT, start_new_session=os.name != "nt")
+        code, timed_out = None, False
+        while code is None:
+            try:
+                code = process.wait(timeout=min(30, timeout) if timeout else 30)
+            except subprocess.TimeoutExpired:
+                elapsed = time.time() - start
+                if timeout and elapsed > timeout:
+                    stop(process)
+                    code, timed_out = process.wait(), True
+                else:
+                    print(f"{folder.name}: running {elapsed:.0f} s, {last_line(folder / 'log.txt')}", flush=True)
     note(f"exit {code}" + (" (timed out)" if timed_out else ""))
     frames = len(list(folder.glob("frame-*.ppm")))
     dumped = len(list((folder / "dump").glob("*.ppm"))) if (folder / "dump").exists() else 0

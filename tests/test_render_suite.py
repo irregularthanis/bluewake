@@ -157,7 +157,7 @@ class Check(Work):
 class EndToEnd(Work):
     def suite(self, a, b, *extra):
         (self.dir / 'states').mkdir(exist_ok=True)
-        (self.dir / 'states' / 'outset_trees.bwstate').write_bytes(b'state')
+        (self.dir / 'states' / 'outset_trees.bwstate').write_bytes(b'state' * 1000)
         (self.dir / 'card').write_bytes(b'card')
         out = self.dir / f'out-{a}-{b}'
         code = subprocess.run([sys.executable, str(SCRIPTS / 'render_suite.py'), 'run', str(self.app(a)),
@@ -180,7 +180,7 @@ class EndToEnd(Work):
 
     def test_collect_needs_no_frames_back_when_a_and_b_match(self):
         (self.dir / 'states').mkdir()
-        (self.dir / 'states' / 'outset_trees.bwstate').write_bytes(b'state')
+        (self.dir / 'states' / 'outset_trees.bwstate').write_bytes(b'state' * 1000)
         (self.dir / 'card').write_bytes(b'card')
         suite = [sys.executable, str(SCRIPTS / 'render_suite.py')]
         for a, b in (('plain', 'plain-b'), ('bright', 'plain')):
@@ -210,6 +210,13 @@ class EndToEnd(Work):
                               capture_output=True, text=True)
         self.assertEqual(code.returncode, 2)
         self.assertIn('no state', code.stderr)
+        (self.dir / 'states' / 'outset_trees.bwstate').write_bytes(b's\n')  # a placeholder: the game hangs on it
+        code = subprocess.run([sys.executable, str(SCRIPTS / 'render_suite.py'), 'collect', str(self.app('plain')),
+                               str(self.app('plain-b')), str(self.dir / 'out'), '--card', str(self.dir / 'card'),
+                               '--states', str(self.dir / 'states'), '--display', 'desktop'],
+                              capture_output=True, text=True)
+        self.assertEqual(code.returncode, 2)
+        self.assertIn('placeholder', code.stderr)
 
 
 class Wrapper(unittest.TestCase):
