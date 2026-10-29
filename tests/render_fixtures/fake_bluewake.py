@@ -62,5 +62,5 @@ for i in range(12):
     print(f"[gpu-prof] frames=240 frame_ms=16.6 max=17.0 busy_ms={gpu + 0.01 * (i % 6)} | ssao {gpu / 2:.2f} x1 "
           f"| main {gpu / 4:.2f} x1 | copy {gpu / 8:.2f} x1")
 for path, _, at in saves:
-    save_state(path, int(at))
+    save_state(path, int(at) + 1)  # as the game does: the first retrace at or after the one asked for
 sys.exit(1 if env.get("BLUEWAKE_WARP") else 0)

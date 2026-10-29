@@ -230,7 +230,7 @@ class EndToEnd(Work):
             failed = render_suite.make_tour_state('tour.bwstate', self.app('plain'), self.dir / 'out', args,
                                                   dict(os.environ))
         self.assertIsNone(failed)
-        self.assertEqual(render_suite.state_retrace(self.dir / 'states' / 'tour.bwstate'), 2390)
+        self.assertEqual(render_suite.state_retrace(self.dir / 'states' / 'tour.bwstate'), 2391)
         self.assertEqual((self.dir / 'states' / 'tour.card').read_bytes(), b'card')
 
     def test_the_tour_is_one_scene_a_stop(self):

@@ -386,12 +386,15 @@ def make_tour_state(name, app, out, args, env):
     setup = bench_tour.setup_environment(env, scratch=folder, card=card, state_path=made.resolve())
     with open(folder / "setup.log", "w") as log:
         code = subprocess.run([str(app)], env=setup, stdout=log, stderr=subprocess.STDOUT, timeout=900).returncode
-    if state_retrace(made) != bench_tour.SAVE_AT:
+    # The save lands on the first retrace at or after the one asked for (2391 for 2390), as bench_tour.py's
+    # SETUP_CAP (2392) allows.
+    retrace = state_retrace(made)
+    if retrace is None or not bench_tour.SAVE_AT <= retrace <= bench_tour.SETUP_CAP:
         return f"{name}: the headless setup (exit {code}) saved no state (see {folder / 'setup.log'})"
     Path(args.states).mkdir(parents=True, exist_ok=True)
     shutil.move(str(made), str(path))
     shutil.copy(card, state_card(path))
-    print(f"== made {path} at retrace {bench_tour.SAVE_AT}", flush=True)
+    print(f"== made {path} at retrace {retrace}", flush=True)
     return None
 
 
@@ -423,7 +426,7 @@ def make_state(name, recipe, app, out, args, env):
     text = warp_run(app, folder / "save", recipe, quest_log, args, env, stop_after=settle + 240,
                     extra=("--set", f"BLUEWAKE_SAVE_STATE={made.resolve()}@{target}"))
     arrived, saved = text.find("[warp] arrived"), text.find("[state] saved")
-    if arrived < 0 or saved < 0 or saved < arrived or state_retrace(made) != target:
+    if arrived < 0 or saved < 0 or saved < arrived or not target <= (state_retrace(made) or 0) <= target + 2:
         return (f"{name}: no state saved after Link arrived at retrace {target} "
                 f"(see {folder / 'save' / 'log.txt'})")
     Path(args.states).mkdir(parents=True, exist_ok=True)
