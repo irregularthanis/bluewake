@@ -2,6 +2,7 @@
 No disc, card or app: tests/render_fixtures/fake_bluewake.py writes the frames and log lines instead."""
 
 from pathlib import Path
+import gzip
 import json
 import os
 import shutil
@@ -9,6 +10,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
+import argparse
 
 ROOT = Path(__file__).parents[1]
 SCRIPTS = ROOT / 'scripts'
@@ -24,6 +27,13 @@ try:
     HAVE_IMAGES = True
 except ImportError:
     HAVE_IMAGES = False
+
+
+def write_state(path, retrace):
+    """A save state with only its header, as render_suite.state_retrace reads it."""
+    with gzip.open(path, 'wb') as out:
+        out.write(b'BWSTATE1' + bytes(4) + b'HEADER'.ljust(16, b'\0') + (40).to_bytes(8, 'little')
+                  + bytes(32) + retrace.to_bytes(8, 'little'))
 
 
 class Work(unittest.TestCase):
@@ -54,7 +64,7 @@ class Manifest(unittest.TestCase):
         text = '\n'.join(problems)
         for expected in ('dump needs smooth', 'name used twice', 'no state', 'length (retraces after the state)',
                          'unknown keys colour', 'b: give capture or dump', "pad press '1885:B:6'",
-                         'state s: warp must be stage:room:point'):
+                         'state s: give tour: true, or warp'):
             self.assertIn(expected, text)
 
 
@@ -164,7 +174,7 @@ class Check(Work):
 class EndToEnd(Work):
     def suite(self, a, b, *extra):
         (self.dir / 'states').mkdir(exist_ok=True)
-        (self.dir / 'states' / 'outset_trees.bwstate').write_bytes(b'state' * 1000)
+        write_state(self.dir / 'states' / 'tour.bwstate', 2390)
         (self.dir / 'card').write_bytes(b'card')
         out = self.dir / f'out-{a}-{b}'
         code = subprocess.run([sys.executable, str(SCRIPTS / 'render_suite.py'), 'run', str(self.app(a)),
@@ -187,7 +197,7 @@ class EndToEnd(Work):
 
     def test_collect_needs_no_frames_back_when_a_and_b_match(self):
         (self.dir / 'states').mkdir()
-        (self.dir / 'states' / 'outset_trees.bwstate').write_bytes(b'state' * 1000)
+        write_state(self.dir / 'states' / 'tour.bwstate', 2390)
         (self.dir / 'card').write_bytes(b'card')
         suite = [sys.executable, str(SCRIPTS / 'render_suite.py')]
         for a, b in (('plain', 'plain-b'), ('bright', 'plain')):
@@ -205,26 +215,31 @@ class EndToEnd(Work):
                 self.assertEqual(code, 0)
                 self.assertEqual({s['verdict'] for s in summary['scenes']}, {'identical'})
             else:
-                self.assertEqual(differing, ['outset-trees-swing', 'outset-trees-still'])
+                self.assertEqual(differing, ['tour-1-outset', 'tour-2-windfall', 'tour-3-dragon-roost-cavern',
+                                             'tour-4-forest-haven', 'tour-5-sea-by-the-fortress', 'outset-swing'])
                 self.assertEqual({s['why'] for s in summary['scenes']}, {'frames differ but were not copied here'})
 
-    def test_a_missing_or_placeholder_state_is_made_from_its_recipe(self):
+    def test_the_tour_state_is_made_and_kept_with_its_card(self):
         (self.dir / 'states').mkdir()
-        (self.dir / 'states' / 'outset_trees.bwstate').write_bytes(b's\n')  # a placeholder: the game hangs on it
+        (self.dir / 'states' / 'tour.bwstate').write_bytes(b's\n')  # a placeholder: the game hangs on it
         (self.dir / 'card').write_bytes(b'card')
-        out = self.dir / 'out'
-        code = subprocess.run([sys.executable, str(SCRIPTS / 'render_suite.py'), 'collect', str(self.app('plain')),
-                               str(self.app('plain-b')), str(out), '--card', str(self.dir / 'card'), '--states',
-                               str(self.dir / 'states'), '--repeat', '1', '--display', 'desktop'],
-                              capture_output=True, text=True)
-        self.assertEqual(code.returncode, 0, code.stdout + code.stderr)
-        # the fake's warp arrives at 840; its first [perf] after that is 840, and the recipe settles 180
-        self.assertEqual(render_suite.state_retrace(self.dir / 'states' / 'outset_trees.bwstate'), 1020)
-        self.assertIn('made', code.stdout)
-        swing = json.loads((out / 'scenes' / 'outset-trees-swing' / 'results.json').read_text())
-        self.assertTrue(all(r['frames'] or r['dumped'] for r in swing))
-        status = (out / 'scenes' / 'outset-trees-still' / 'status.txt').read_text()
-        self.assertIn('A started', status)
+        args = argparse.Namespace(card=str(self.dir / 'card'), states=str(self.dir / 'states'))
+        copy = lambda source, dest: [sys.executable, '-c', 'import shutil, sys; shutil.copy(*sys.argv[1:])',
+                                     str(source), str(dest)]  # card_set_restart.py needs a real card
+        with mock.patch('bench_tour.card_restart_argv', copy):
+            failed = render_suite.make_tour_state('tour.bwstate', self.app('plain'), self.dir / 'out', args,
+                                                  dict(os.environ))
+        self.assertIsNone(failed)
+        self.assertEqual(render_suite.state_retrace(self.dir / 'states' / 'tour.bwstate'), 2390)
+        self.assertEqual((self.dir / 'states' / 'tour.card').read_bytes(), b'card')
+
+    def test_the_tour_is_one_scene_a_stop(self):
+        code, summary = self.suite('plain', 'plain-b')
+        tour = [s for s in summary['scenes'] if s.get('scene') == 'tour']
+        self.assertEqual([s['name'] for s in tour], ['tour-1-outset', 'tour-2-windfall',
+                                                     'tour-3-dragon-roost-cavern', 'tour-4-forest-haven',
+                                                     'tour-5-sea-by-the-fortress'])
+        self.assertEqual({s['images'] for s in tour}, {5})
 
     def test_a_state_without_a_recipe_stops_before_running(self):
         (self.dir / 'states').mkdir()

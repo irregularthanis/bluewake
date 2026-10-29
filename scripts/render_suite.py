@@ -97,9 +97,9 @@ def validate(scenes, recipes=None):
     """Problems with a manifest's scenes and state recipes, as messages."""
     problems, names = [], set()
     for state, recipe in (recipes or {}).items():
-        if not re.match(r"^[A-Za-z0-9_]+:\d+:\d+(:\d+)?$", str(recipe.get("warp", ""))):
-            problems.append(f"state {state}: warp must be stage:room:point[:layer]")
-        unknown = set(recipe) - {"about", "warp", "time", "file", "settle"}
+        if not recipe.get("tour") and not re.match(r"^[A-Za-z0-9_]+:\d+:\d+(:\d+)?$", str(recipe.get("warp", ""))):
+            problems.append(f"state {state}: give tour: true, or warp as stage:room:point[:layer]")
+        unknown = set(recipe) - {"about", "tour", "warp", "time", "file", "settle"}
         if unknown:
             problems.append(f"state {state}: unknown keys {', '.join(sorted(unknown))}")
     for i, s in enumerate(scenes):
@@ -111,6 +111,21 @@ def validate(scenes, recipes=None):
         names.add(name)
         if not s.get("state"):
             problems.append(f"{name}: no state")
+        if s.get("tour"):
+            if s["tour"] not in ("default", "untrained"):
+                problems.append(f"{name}: tour is default or untrained")
+            if not isinstance(s.get("every"), int) or s.get("every", 0) <= 0:
+                problems.append(f"{name}: every (retraces between a tour's captures) must be a positive number")
+            for key in ("length", "pad", "capture", "dump"):
+                if key in s:
+                    problems.append(f"{name}: a tour scene has no {key}")
+            unknown = set(s) - {"name", "about", "state", "tour", "every", "scale", "set", "suite", "min_psnr",
+                                "flicker_margin", "region", "timeout"}
+            if unknown:
+                problems.append(f"{name}: unknown keys {', '.join(sorted(unknown))}")
+            if s.get("suite", "quick") not in ("quick", "full"):
+                problems.append(f"{name}: suite is quick or full")
+            continue
         if not (s.get("capture") or s.get("dump")):
             problems.append(f"{name}: give capture or dump")
         if s.get("dump") and not s.get("smooth"):
@@ -176,17 +191,57 @@ def gpu_name():
         return ""
 
 
+def tour_timing(scene):
+    """A tour scene as rendered_run.py options, and its stops as (name, first retrace, end retrace)."""
+    import bench_tour
+    stops = bench_tour.DEFAULT_STOPS if scene["tour"] == "default" else bench_tour.UNTRAINED_STOPS
+    every = scene["every"]
+    timed = {"max_retraces": bench_tour.tour_end(stops),
+             "capture": f"{bench_tour.START + bench_tour.SETTLE}:{every}",
+             "set": [*scene.get("set", []), f"BLUEWAKE_TEST_WARP={bench_tour.warp_string(stops)}"]}
+    windows = []
+    for i, stop in enumerate(stops):
+        first = bench_tour.START + i * 1800
+        slug = re.sub(r"[^a-z0-9]+", "-", stop.name.lower()).strip("-")
+        windows.append((f"{scene['name']}-{i + 1}-{slug}", first + bench_tour.SETTLE, first + 1800))
+    return timed, windows
+
+
+def split_tour(scene, row, folder, windows, out):
+    """One scene folder per stop, with that stop's frames (hard links) and their hashes."""
+    rows = []
+    for name, first, end in windows:
+        stop = out / "scenes" / name
+        shutil.rmtree(stop, ignore_errors=True)
+        for v in ("A", "B"):
+            (stop / v).mkdir(parents=True)
+            for frame in (folder / v).glob("frame-*.ppm"):
+                if first <= int(frame.stem.split("-")[1]) < end:
+                    os.link(frame, stop / v / frame.name)
+        (stop / "hashes.json").write_text(json.dumps({v: frame_hashes(stop / v) for v in ("A", "B")}, indent=1))
+        rows.append({"name": name, "scene": scene["name"], "runs": row["runs"]})
+    return rows
+
+
 def collect_scene(scene, apps, out, args, env):
-    """Run one scene on both builds and hash its frames; the frames stay where they are."""
+    """Run one scene on both builds and hash its frames; the frames stay where they are. A tour scene comes
+    back as one row a stop."""
     folder = out / "scenes" / scene["name"]
-    cmd = [sys.executable, str(HERE / "rendered_run.py"), str(apps["A"]), str(folder), "--card", str(args.card),
-           "--state", str(Path(args.states) / scene["state"]), "--timeout", str(scene.get("timeout", 600))]
-    timed = {**scene, **shifted(scene, state_retrace(Path(args.states) / scene["state"]))}
+    state = Path(args.states) / scene["state"]
+    card = state_card(state) if state_card(state).is_file() else Path(args.card)
+    cmd = [sys.executable, str(HERE / "rendered_run.py"), str(apps["A"]), str(folder), "--card", str(card),
+           "--state", str(state), "--timeout", str(scene.get("timeout", 600 if not scene.get("tour") else 1200))]
+    windows = None
+    if scene.get("tour"):
+        timed, windows = tour_timing(scene)
+        timed = {**scene, **timed}
+    else:
+        timed = {**scene, **shifted(scene, state_retrace(state))}
     for key, flag in (("max_retraces", "--max-retraces"), ("pad", "--pad"), ("capture", "--capture"),
                       ("dump", "--dump"), ("smooth", "--smooth"), ("scale", "--scale")):
         if timed.get(key) is not None:
             cmd += [flag, str(timed[key])]
-    for item in scene.get("set", []):
+    for item in timed.get("set", []):
         cmd += ["--set", item]
     cmd += ["--variant", "A", "--variant", "B", f"APP={apps['B']}"]
     subprocess.run(cmd, env=env, stdout=sys.stdout, stderr=subprocess.STDOUT)
@@ -194,7 +249,8 @@ def collect_scene(scene, apps, out, args, env):
     runs = {r["variant"]: r for r in (json.loads(results.read_text()) if results.exists() else [])}
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "hashes.json").write_text(json.dumps({v: frame_hashes(folder / v) for v in ("A", "B")}, indent=1))
-    return {"name": scene["name"], "runs": runs}
+    row = {"name": scene["name"], "runs": runs}
+    return split_tour(scene, row, folder, windows, out) if windows else [row]
 
 
 def frame_hashes(folder):
@@ -230,7 +286,7 @@ def hashes_differ(folder):
 
 def judge_scene(scene, row, out):
     """A scene's verdict: from its hashes when A and B match, else from its frames with frame_compare.py check."""
-    folder = out / "scenes" / scene["name"]
+    folder = out / "scenes" / row["name"]  # a tour's stops have folders of their own
     row = dict(row)
     problems = run_problems(row["runs"])
     if problems:
@@ -312,6 +368,38 @@ def warp_run(app, folder, recipe, quest_log, args, env, stop_after, extra=()):
     return log.read_text(errors="replace") if log.exists() else ""
 
 
+def make_tour_state(name, app, out, args, env):
+    """The benchmark tour's start (scripts/bench_tour.py): the card's quest log 1 put on Outset
+    (card_set_restart.py), continued headless, saved at retrace 2390. Its card is kept beside it."""
+    import bench_tour
+    path = Path(args.states) / name
+    folder = out / "make-state" / Path(name).stem
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "settings.ini").write_text("")
+    card = folder / "GZLE01.card"
+    print(f"== making {name}: the benchmark tour's start (quest log 1 on Outset, saved at {bench_tour.SAVE_AT})",
+          flush=True)
+    if subprocess.run(bench_tour.card_restart_argv(args.card, card)).returncode != 0:
+        return f"{name}: card_set_restart.py could not put quest log 1 on Outset"
+    made = folder / "made.bwstate"
+    made.unlink(missing_ok=True)
+    setup = bench_tour.setup_environment(env, scratch=folder, card=card, state_path=made.resolve())
+    with open(folder / "setup.log", "w") as log:
+        code = subprocess.run([str(app)], env=setup, stdout=log, stderr=subprocess.STDOUT, timeout=900).returncode
+    if state_retrace(made) != bench_tour.SAVE_AT:
+        return f"{name}: the headless setup (exit {code}) saved no state (see {folder / 'setup.log'})"
+    Path(args.states).mkdir(parents=True, exist_ok=True)
+    shutil.move(str(made), str(path))
+    shutil.copy(card, state_card(path))
+    print(f"== made {path} at retrace {bench_tour.SAVE_AT}", flush=True)
+    return None
+
+
+def state_card(state):
+    """The card a made state was made with, kept beside it (NAME.card)."""
+    return Path(state).with_suffix(".card")
+
+
 def make_state(name, recipe, app, out, args, env):
     """Make a scene's save state from its recipe: warp there, see when Link arrives, then warp again and save
     the state `settle` retraces later (the camera and the room settled). Returns a message on failure."""
@@ -376,7 +464,8 @@ def collect(args):
                "display": f"{mode} {size}" if mode == "headless" else mode, "suite": args.suite,
                "repeat": args.repeat, "a": args.label_a, "b": args.label_b, "scene_list": scenes, "scenes": []}
     for name in to_make:
-        failed = make_state(name, recipes[name], apps["B"], out, args, env)
+        failed = (make_tour_state(name, Path(args.app_b).resolve(), out, args, env) if recipes[name].get("tour")
+                  else make_state(name, recipes[name], apps["B"], out, args, env))
         if failed:
             print(f"render_suite: {failed}", file=sys.stderr)
             return 2
@@ -385,7 +474,7 @@ def collect(args):
           flush=True)
     for n, scene in enumerate(scenes, 1):
         print(f"== scene {n}/{len(scenes)}: {scene['name']}", flush=True)
-        summary["scenes"].append(collect_scene(scene, apps, out, args, env))
+        summary["scenes"] += collect_scene(scene, apps, out, args, env)
     top = QUICK_ROOMS if args.suite == "quick" else FULL_ROOMS
     print(f"== rooms: the costliest {top}, {args.repeat} run(s) each build", flush=True)
     cmd = [sys.executable, str(HERE / "bench_rooms.py"), str(apps["A"]), str(out / "rooms"), "--card",
@@ -414,7 +503,7 @@ def analyze(out, floor):
         return 2
     summary = json.loads((out / "collected.json").read_text())
     scenes = {s["name"]: s for s in summary.pop("scene_list")}
-    summary["scenes"] = [judge_scene(scenes[row["name"]], row, out) for row in summary["scenes"]]
+    summary["scenes"] = [judge_scene(scenes[row.get("scene", row["name"])], row, out) for row in summary["scenes"]]
     summary["rooms"] = compare_rooms(read_rooms_tsv(out / "rooms" / "rooms.tsv"), floor)
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
     print(f"== wrote {out / 'summary.json'}")

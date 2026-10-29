@@ -72,7 +72,11 @@ reference images. Every scene starts from a save state, so A and B make the same
 changed. Two things run, both through the scripts above:
 
 - **Scenes** ([`scripts/render_scenes.json`](../scripts/render_scenes.json)): each is a `rendered_run.py` run per
-  build from a save state, with its pad script, captures or Smooth Motion dump and settings. Then
+  build from a save state, with its pad script, captures or Smooth Motion dump and settings. The main one is the
+  **benchmark tour, rendered**: the same five stops as [`bench_tour.py`](BENCHMARK_TOUR.md) (Outset, Windfall,
+  Dragon Roost Cavern, Forest Haven, the sea by the Fortress) from its start state, warped every 1800 retraces
+  (`BLUEWAKE_TEST_WARP`). A capture every 300 retraces after each stop's first 300 gives five images a stop, and
+  each stop is judged as a scene of its own. Then
   `frame_compare.py check A B` gives a verdict. **identical**: every pixel is the same. **similar**: every image's
   PSNR is at least the scene's `min_psnr` (default 40). **changed**: an image's PSNR is below that. **failed**: a
   run crashed, timed out, started in safe mode or made no frames, the image sets differ, or A blinks more than B
@@ -121,28 +125,36 @@ B (reference): main
 Checking deck@10.10.20.168...
 Evidence on target: deck@10.10.20.168:/home/deck/bluewake-render/runs/gpr-vs-main-20261028T214500Z
 Staging builds and harness...
+== making tour.bwstate: the benchmark tour's start (quest log 1 on Outset, saved at 2390)
+== made /home/deck/bluewake-render/states/tour.bwstate at retrace 2390
 == 2 scene(s) on steamdeck (AMD Custom GPU 0405 (RADV VANGOGH), headless 1280x800)
-== scene 1/2: outset-trees-swing
-A: exit 1 after 31 s, 0 frames, 160 dumped images
-B: exit 1 after 30 s, 0 frames, 160 dumped images
-== scene 2/2: outset-trees-still
+== scene 1/2: tour
+A: running 30 s, last: [perf] retrace=4140 rate=59.9 worst_ms=17.0 hitches=0 busy=58%
+...
+A: exit 0 after 160 s, 29 frames, 0 dumped images
+B: exit 0 after 158 s, 29 frames, 0 dumped images
+== scene 2/2: outset-swing
 ...
 == rooms: the costliest 3, 3 run(s) each build
 ...
 == wrote /home/deck/bluewake-render/runs/gpr-vs-main-20261028T214500Z/out/collected.json
 Copying back logs, timings and frame hashes...
-Copying back outset-trees-swing frames (A and B differ)...
+Copying back outset-swing frames (A and B differ)...
 
 Analysing here...
 changed: 160 images, 41 differ, max diff 96, min PSNR 31.2, flicker A 0 B 212 (52-between PSNR 31.2 < 40.0)
-wrote build/render-tests/gpr-vs-main-20261028T214500Z/out/scenes/outset-trees-swing/worst.png
+wrote build/render-tests/gpr-vs-main-20261028T214500Z/out/scenes/outset-swing/worst.png
 
 Rendered tests: A gpr against B main
 steamdeck, AMD Custom GPU 0405 (RADV VANGOGH), display headless 1280x800, quick suite, 3 run(s) a room
 
-scene               verdict    images  max diff  min PSNR  flicker A/B  why
-outset-trees-swing  CHANGED    160     96        31.2      0/212        52-between PSNR 31.2 < 40.0
-outset-trees-still  IDENTICAL  10      0         -         =/=
+scene                       verdict    images  max diff  min PSNR  flicker A/B  why
+tour-1-outset               IDENTICAL  5       0         -         =/=
+tour-2-windfall             IDENTICAL  5       0         -         =/=
+tour-3-dragon-roost-cavern  IDENTICAL  5       0         -         =/=
+tour-4-forest-haven         IDENTICAL  5       0         -         =/=
+tour-5-sea-by-the-fortress  IDENTICAL  5       0         -         =/=
+outset-swing                CHANGED    160     96        31.2      0/212        52-between PSNR 31.2 < 40.0
 
 room        name            GPU ms A  GPU ms B  busy% A  busy% B  GPU Δ   flag
 SubD51:1:0  SubD51          11.42     11.51     78.5     79.1     -0.8%   ok
@@ -155,7 +167,7 @@ Summary: /home/me/bluewake/build/render-tests/gpr-vs-main-20261028T214500Z/out/s
 ```
 
 Here the swing scene changed because A fixed B's flicker (0 blink pixels against 212). Its `worst.png` shows A, B
-and their difference (x8) side by side. The still scene was identical by its frame hashes alone, so its frames
+and their difference (x8) side by side. The tour's stops were identical by their frame hashes alone, so its frames
 were not copied (`=/=`: no flicker check needed, A is B). A **changed** verdict means "look at it", not
 "wrong". The Warp maze is 11% slower on the GPU, well outside the spread between runs. With `--format github` the
 same tables come out as Markdown.
@@ -170,8 +182,8 @@ scripts end to end with a fake app (`tests/render_fixtures/fake_bluewake.py`) th
 
 **One-time setup on the target:**
 
-- the card: `~/.local/share/BlueWake/GZLE01.card` (`--card` for another). Each run gets a copy; the states are
-  made from its quest log 1, so use a file that has Outset's hilltop open (any file past the start of the game).
+- the card: `~/.local/share/BlueWake/GZLE01.card` (`--card` for another), never changed. The runs and the state
+  use copies of it.
 - nothing for the save states: a state the scenes need that is missing (or is not a save state, such as a
   placeholder of a few bytes, which the game hangs on) is **made on the target from its recipe** the first time,
   with build B, and kept for later runs in `~/bluewake-render/states/` (`~/.local/share/BlueWake/render-states/`
@@ -180,22 +192,31 @@ scripts end to end with a fake app (`tests/render_fixtures/fake_bluewake.py`) th
   there (SteamOS has it), at 1280x800 on a Deck (`--size` for another). Without it, the game uses the running
   desktop session (Desktop Mode on a Deck, `DISPLAY=:0`).
 - `python3` and `tar` (SteamOS has both). numpy and Pillow are needed only on the machine running `render_test`.
+- the disc, as for playing: each run gets a fresh data folder, and `rendered_run.py` copies the player's `disc.txt`
+  and `game.txt` into it (on Linux the app keeps which disc to read there).
 
-**Save states from a recipe.** `render_scenes.json` has a `states` section:
+**Save states from a recipe.** `render_scenes.json` has a `states` section. Every scene now uses one state, the
+benchmark tour's start:
 
 ```json
-"outset_trees.bwstate": {"warp": "sea:44:8:0", "time": "noon", "file": 1, "settle": 180}
+"tour.bwstate": {"tour": true}
 ```
 
-To make it, the suite warps there once (stage select, quest log `file`, `time`) and reads the log for the first
-`[perf]` retrace after `[warp] arrived`. Then it warps again and saves the state (`BLUEWAKE_SAVE_STATE`) `settle`
-retraces after that (180 is 3 seconds, for the camera and the room to settle). It checks that the save came after
-Link arrived and that the file's header holds that retrace. `sea:44:8:0` is Outset's hilltop, by the small
-trees where #491's shadows flickered (fixed in #494).
+It is made exactly as `bench_tour.py` makes it: `card_set_restart.py` copies the card and puts quest log 1 on
+Outset (`sea 44 0`), so it works with any card that has a Wind Waker save. Then one headless run continues that
+save and saves the state at retrace 2390. The copied card is kept beside it (`tour.card`), and the scenes from that
+state use it. `benchmark_on_steamdeck`'s `state.json` is the same state.
+
+A recipe can also warp somewhere with the stage select instead: `{"warp": "sea:44:8:0", "time": "noon", "file": 1,
+"settle": 180}`. The suite warps there once and reads the log for the first `[perf]` retrace after `[warp]
+arrived`. Then it warps again and saves the state `settle` retraces after that. It tries quest logs `file`, 1, 2
+and 3 until one gets there, and an empty one ends its try at once.
 
 **Adding a scene.** Scenes count their retraces from their state, so a state made again (at a slightly different
 retrace, as a warp from boot is not frame-exact) still fits. The suite reads the state's retrace from its header
-and adds it. Add an entry to `render_scenes.json`, with a recipe under `states` for a new place:
+and adds it. Add an entry to `render_scenes.json` (with a recipe under `states` for a new place). A tour scene is
+`{"name": ..., "state": "tour.bwstate", "tour": "default" or "untrained", "every": 300, "set": [...]}`; any other
+scene is like this:
 
 ```json
 {

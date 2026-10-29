@@ -138,7 +138,8 @@ done
 
 scripts=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
 repo=$(dirname "$scripts")
-harness=(render_suite.py rendered_run.py bench_rooms.py bench_rooms.tsv render_scenes.json)
+harness=(render_suite.py rendered_run.py bench_rooms.py bench_rooms.tsv render_scenes.json
+         bench_tour.py card_set_restart.py card_container.py save_set_restart.py)
 for file in "${harness[@]}" frame_compare.py; do
     [[ -f "$scripts/$file" ]] || die "missing beside render_test: $file"
 done

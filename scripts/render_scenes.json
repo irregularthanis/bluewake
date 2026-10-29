@@ -1,18 +1,24 @@
 {
  "states": {
-  "outset_trees.bwstate": {
-   "about": "Outset's hilltop, by the small trees (#491, #494): quest log 1, noon, 3 s after Link arrives",
-   "warp": "sea:44:8:0",
-   "time": "noon",
-   "file": 1,
-   "settle": 180
+  "tour.bwstate": {
+   "about": "The benchmark tour's start (scripts/bench_tour.py): the card's quest log 1 put on Outset, continued headless, saved at retrace 2390",
+   "tour": true
   }
  },
  "scenes": [
   {
-   "name": "outset-trees-swing",
-   "about": "#491: two sword swings by Outset's small trees, sun shadows on, 60 FPS Smooth Motion dump",
-   "state": "outset_trees.bwstate",
+   "name": "tour",
+   "about": "The benchmark tour rendered, HD look on: Outset, Windfall, Dragon Roost Cavern, Forest Haven, the sea by the Fortress; a capture every 300 retraces after each stop's first 300",
+   "state": "tour.bwstate",
+   "tour": "default",
+   "every": 300,
+   "set": ["BLUEWAKE_HD_LOOK=1"],
+   "region": "0,0.1,1,0.9"
+  },
+  {
+   "name": "outset-swing",
+   "about": "#491: two sword swings at Outset (the tour's start), sun shadows on, 60 FPS Smooth Motion dump",
+   "state": "tour.bwstate",
    "pad": "30:0x0200:6,60:0x0200:6",
    "length": 180,
    "dump": "0:80",
@@ -22,29 +28,30 @@
    "region": "0,0.1,1,0.9"
   },
   {
-   "name": "outset-trees-still",
-   "about": "The same place standing still, HD look, a capture every 30 retraces",
-   "state": "outset_trees.bwstate",
-   "length": 330,
-   "capture": "30:30",
-   "set": ["BLUEWAKE_HD_LOOK=1"],
-   "region": "0,0.1,1,0.9"
-  },
-  {
-   "name": "outset-trees-classic",
-   "about": "The same place with the HD look off",
+   "name": "tour-classic",
+   "about": "The benchmark tour with the HD look off",
    "suite": "full",
-   "state": "outset_trees.bwstate",
-   "length": 330,
-   "capture": "30:30",
+   "state": "tour.bwstate",
+   "tour": "default",
+   "every": 300,
    "set": ["BLUEWAKE_HD_LOOK=0"],
    "region": "0,0.1,1,0.9"
   },
   {
-   "name": "outset-trees-ao-scale3",
-   "about": "Ambient occlusion at render scale 3",
+   "name": "tour-untrained",
+   "about": "The untrained stops rendered: Earth Temple, Wind Temple",
    "suite": "full",
-   "state": "outset_trees.bwstate",
+   "state": "tour.bwstate",
+   "tour": "untrained",
+   "every": 300,
+   "set": ["BLUEWAKE_HD_LOOK=1"],
+   "region": "0,0.1,1,0.9"
+  },
+  {
+   "name": "outset-ao-scale3",
+   "about": "Ambient occlusion at render scale 3, at Outset",
+   "suite": "full",
+   "state": "tour.bwstate",
    "length": 330,
    "capture": "30:60",
    "scale": 3,

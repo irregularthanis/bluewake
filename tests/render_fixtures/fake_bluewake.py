@@ -56,12 +56,11 @@ saves = [item.rpartition("@") for item in env.get("BLUEWAKE_SAVE_STATE", "").spl
 gpu = 8.0 if "slow" in name else 4.0
 for i in range(12):
     retrace = 600 + 60 * i
-    for path, _, at in saves:
-        if retrace - 60 < int(at) <= retrace:
-            save_state(path, int(at))
     if env.get("BLUEWAKE_WARP") and retrace == 840:
         print("[warp] arrived: Link is in the room")
     print(f"[perf] retrace={retrace} rate=60.0 worst_ms=17.0 hitches=0 busy={60 + i % 2}.0%")
     print(f"[gpu-prof] frames=240 frame_ms=16.6 max=17.0 busy_ms={gpu + 0.01 * (i % 6)} | ssao {gpu / 2:.2f} x1 "
           f"| main {gpu / 4:.2f} x1 | copy {gpu / 8:.2f} x1")
+for path, _, at in saves:
+    save_state(path, int(at))
 sys.exit(1 if env.get("BLUEWAKE_WARP") else 0)
