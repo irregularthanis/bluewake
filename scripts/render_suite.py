@@ -298,10 +298,12 @@ def compare_rooms(rows, floor):
     return out
 
 
-def warp_run(app, folder, recipe, args, env, stop_after, extra=()):
+def warp_run(app, folder, recipe, quest_log, args, env, stop_after, extra=()):
+    # A quest log that is empty leaves the game at the file select: the retrace cap ends that run.
     cmd = [sys.executable, str(HERE / "rendered_run.py"), str(app), str(folder), "--card", str(args.card),
-           "--warp", recipe["warp"], "--warp-file", str(recipe.get("file", 1)), "--stop-after", str(stop_after),
-           "--timeout", "600", "--set", "BLUEWAKE_PERF_LOG=1", "--set", "BLUEWAKE_LOOSE_REL_RETRACES=1", *extra]
+           "--warp", recipe["warp"], "--warp-file", str(quest_log), "--stop-after", str(stop_after),
+           "--max-retraces", "9000", "--timeout", "600", "--set", "BLUEWAKE_PERF_LOG=1",
+           "--set", "BLUEWAKE_LOOSE_REL_RETRACES=1", *extra]
     if recipe.get("time"):
         cmd += ["--warp-time", str(recipe["time"])]
     subprocess.run(cmd, env=env, stdout=sys.stdout, stderr=subprocess.STDOUT)
@@ -316,15 +318,20 @@ def make_state(name, recipe, app, out, args, env):
     folder = out / "make-state" / Path(name).stem
     settle = int(recipe.get("settle", 180))
     print(f"== making {name}: warp {recipe['warp']}, saved {settle} retraces after Link arrives", flush=True)
-    text = warp_run(app, folder / "find", recipe, args, env, stop_after=120)
-    at = text.find("[warp] arrived")
-    after = [int(m) for m in PERF.findall(text[at:])] if at >= 0 else []
-    if not after:
-        return f"{name}: the warp to {recipe['warp']} never arrived (see {folder / 'find' / 'log.txt'})"
+    # The recipe's quest log first, then the card's others: a card's saves are not always in the same one.
+    for quest_log in dict.fromkeys([int(recipe.get("file", 1)), 1, 2, 3]):
+        text = warp_run(app, folder / f"find-{quest_log}", recipe, quest_log, args, env, stop_after=120)
+        at = text.find("[warp] arrived")
+        after = [int(m) for m in PERF.findall(text[at:])] if at >= 0 else []
+        if after:
+            break
+        print(f"== quest log {quest_log} did not get there" + (" (empty)" if "is empty" in text else ""), flush=True)
+    else:
+        return f"{name}: the warp to {recipe['warp']} never arrived from quest logs 1-3 (see {folder}/find-*/log.txt)"
     target = after[0] + settle
     made = folder / "made.bwstate"
     made.unlink(missing_ok=True)
-    text = warp_run(app, folder / "save", recipe, args, env, stop_after=settle + 240,
+    text = warp_run(app, folder / "save", recipe, quest_log, args, env, stop_after=settle + 240,
                     extra=("--set", f"BLUEWAKE_SAVE_STATE={made.resolve()}@{target}"))
     arrived, saved = text.find("[warp] arrived"), text.find("[state] saved")
     if arrived < 0 or saved < 0 or saved < arrived or state_retrace(made) != target:
@@ -332,7 +339,7 @@ def make_state(name, recipe, app, out, args, env):
                 f"(see {folder / 'save' / 'log.txt'})")
     Path(args.states).mkdir(parents=True, exist_ok=True)
     shutil.move(str(made), str(path))
-    print(f"== made {path} at retrace {target}", flush=True)
+    print(f"== made {path} at retrace {target}, from quest log {quest_log}", flush=True)
     return None
 
 

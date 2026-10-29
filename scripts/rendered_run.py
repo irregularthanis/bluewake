@@ -131,6 +131,17 @@ def last_line(log):
     return f"last: {lines[-1][:100]}" if lines else "nothing from the game yet"
 
 
+def player_data():
+    """The player's own BlueWake data folder (read only here)."""
+    if os.environ.get("BLUEWAKE_DATA_DIR"):
+        return Path(os.environ["BLUEWAKE_DATA_DIR"])
+    if sys.platform == "darwin":
+        return Path.home() / "Library/Application Support/BlueWake"
+    if os.name == "nt":
+        return Path(os.environ.get("APPDATA", Path.home())) / "BlueWake"
+    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "BlueWake"
+
+
 def run(app, card, folder, env, status, skip, timeout=None):
     folder.mkdir(parents=True, exist_ok=True)
     data = folder / "data"
@@ -141,6 +152,12 @@ def run(app, card, folder, env, status, skip, timeout=None):
     (data / "launch.pending").unlink(missing_ok=True)
     copy = data / "GZLE01.card"
     shutil.copy(card, copy)
+    # Which disc to read: on Linux the app keeps it in its data folder (disc.txt, and game.txt for the
+    # files it prepared from it, both absolute paths). This run's folder is new, so without them the app
+    # starts with no disc and waits for one to be chosen.
+    for name in ("disc.txt", "game.txt"):
+        if (player_data() / name).is_file() and not (data / name).exists():
+            shutil.copy(player_data() / name, data / name)
     full = {k: v for k, v in os.environ.items() if not k.startswith(("BLUEWAKE_", "DOL_"))}
     full.update(HOME=str(data), BLUEWAKE_DATA_DIR=str(data), BLUEWAKE_CARD_PATH=str(copy),
                 BLUEWAKE_SRAM=str(data / "sram.bin"), BLUEWAKE_SETTINGS=str(data / "settings.ini"))
