@@ -70,6 +70,16 @@ find_image() {
     printf '%s\n' "${images[0]}"
 }
 
+# ssh joins its arguments into one command line: quote each one, so an empty
+# one (no --size) or one with spaces arrives as it was.
+quote() {
+    local out= arg
+    for arg in "$@"; do
+        out+=" $(printf '%q' "$arg")"
+    done
+    printf '%s' "${out# }"
+}
+
 build_label() {
     local given=$1
     [[ -d "$given" ]] && basename "$(realpath "$given")" || basename "$given" .AppImage
@@ -216,7 +226,7 @@ else
     run_parent=${run_parent:-'~/bluewake-render/runs'}
 
     printf 'Checking %s...\n' "$target"
-    root=$("${ssh_command[@]}" "$target" bash -s -- "$run_parent" "$run_name" "$card" "$states" <<'CHECK'
+    root=$("${ssh_command[@]}" "$target" "bash -s -- $(quote "$run_parent" "$run_name" "$card" "$states")" <<'CHECK'
 set -eu
 parent=${1/#\~/$HOME} card=${3/#\~/$HOME} states=${4/#\~/$HOME}
 for command in bash python3 sha256sum tee; do
@@ -241,8 +251,8 @@ CHECK
         test \"\$(sha256sum '$root/$safe_b.AppImage' | cut -d' ' -f1)\" = '$hash_b'" ||
         die "the copied builds do not match"
 
-    "${ssh_command[@]}" "$target" bash -s -- "$root" "$root/$safe_a.AppImage" "$root/$safe_b.AppImage" \
-        "$card" "$states" "$suite" "$repeat" "$display" "${size:-}" "$label_a" "$label_b" <<<"$DRIVER" || status=$?
+    "${ssh_command[@]}" "$target" "bash -s -- $(quote "$root" "$root/$safe_a.AppImage" "$root/$safe_b.AppImage" \
+        "$card" "$states" "$suite" "$repeat" "$display" "$size" "$label_a" "$label_b")" <<<"$DRIVER" || status=$?
     "${scp_command[@]}" -q "$target:$root/out/summary.json" "$local_results/summary.json" 2>/dev/null || true
     if [[ $fetch -eq 1 ]]; then
         "${ssh_command[@]}" "$target" "cd '$root/out/scenes' 2>/dev/null && ls -d */worst.png 2>/dev/null" |
