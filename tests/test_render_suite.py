@@ -228,6 +228,7 @@ class EndToEnd(Work):
         self.assertEqual(code.returncode, 0, code.stdout + code.stderr)
         # the fake's warp arrives just before its [perf] at 840; the recipe settles 180; the save lands one later
         self.assertEqual(render_suite.state_retrace(self.dir / 'states' / 'tour.bwstate'), 1021)
+        self.assertEqual((self.dir / 'states' / 'tour.questlog').read_text(), '1\n')  # for the rooms' warps
 
     def test_the_tour_is_one_scene_a_stop(self):
         code, summary = self.suite('plain', 'plain-b')

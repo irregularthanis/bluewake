@@ -123,6 +123,9 @@ def main():
         print(f"[{n}/{len(rooms)}] {place} {code} {name}", flush=True)
         cmd = [sys.executable, str(runner), str(args.app), str(folder), "--card", str(args.card),
                "--warp", code, "--warp-file", str(args.warp_file), "--stop-after", str(args.frames),
+               # An empty quest log leaves the game at the file select: end that run at once, and any run that
+               # does not finish within 5 minutes.
+               "--stop-on", "is empty; stopped pressing A", "--timeout", "300",
                "--gpu-prof", "--repeat", str(args.repeat), "--set", "BLUEWAKE_PERF_LOG=1",
                "--set", "BLUEWAKE_LOOSE_REL_RETRACES=1"]
         cmd += ["--unpaced"] if args.unpaced else []

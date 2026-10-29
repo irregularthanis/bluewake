@@ -368,6 +368,20 @@ def warp_run(app, folder, recipe, quest_log, args, env, stop_after, extra=()):
     return log.read_text(errors="replace") if log.exists() else ""
 
 
+def quest_log_note(state):
+    """Beside a made state: the card's quest log it was made from (one with a save), for the rooms' warps."""
+    return Path(state).with_suffix(".questlog")
+
+
+def rooms_quest_log(states, args):
+    for name in states:
+        try:
+            return int(quest_log_note(Path(args.states) / name).read_text())
+        except (OSError, ValueError):
+            continue
+    return 1
+
+
 def make_state(name, recipe, app, out, args, env):
     """Make a scene's save state from its recipe: warp there, see when Link arrives, then warp again and save
     the state `settle` retraces later (the camera and the room settled). Returns a message on failure."""
@@ -396,6 +410,7 @@ def make_state(name, recipe, app, out, args, env):
                 f"(see {folder / 'save' / 'log.txt'})")
     Path(args.states).mkdir(parents=True, exist_ok=True)
     shutil.move(str(made), str(path))
+    quest_log_note(path).write_text(f"{quest_log}\n")
     print(f"== made {path} at retrace {target}, from quest log {quest_log}", flush=True)
     return None
 
@@ -445,7 +460,7 @@ def collect(args):
     top = QUICK_ROOMS if args.suite == "quick" else FULL_ROOMS
     print(f"== rooms: the costliest {top}, {args.repeat} run(s) each build", flush=True)
     cmd = [sys.executable, str(HERE / "bench_rooms.py"), str(apps["A"]), str(out / "rooms"), "--card",
-           str(args.card), "--rooms", str(HERE / "bench_rooms.tsv"), "--top", str(top), "--repeat",
+           str(args.card), "--warp-file", str(rooms_quest_log(states, args)), "--rooms", str(HERE / "bench_rooms.tsv"), "--top", str(top), "--repeat",
            str(args.repeat), "--rendered-run", str(HERE / "rendered_run.py"),
            "--variant", "A", "--variant", "B", f"APP={apps['B']}"]
     subprocess.run(cmd, env=env, stdout=sys.stdout, stderr=subprocess.STDOUT)
