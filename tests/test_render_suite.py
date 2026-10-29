@@ -115,6 +115,12 @@ class Timeout(Work):
                                   timeout=1)
         self.assertTrue(result['timed_out'])
 
+    def test_an_empty_quest_log_ends_the_run_at_once(self):
+        result = rendered_run.run(self.app('empty'), FAKE, self.dir / 'run', {}, self.dir / 'status.txt', 0,
+                                  timeout=60, stop_on='is empty; stopped pressing A')
+        self.assertFalse(result['timed_out'])
+        self.assertLess(result['seconds'], 15)
+
 
 @unittest.skipUnless(HAVE_IMAGES, 'needs numpy and Pillow')
 class Check(Work):

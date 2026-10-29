@@ -21,6 +21,7 @@ Pictures:
 Run:
   --max-retraces N             end the run at this retrace; a state's retrace counts on from where it was saved
   --timeout SECONDS            stop a run that is still going after this long (timed_out in results.json)
+  --stop-on TEXT               stop the run as soon as its log has TEXT (e.g. "is empty; stopped pressing A")
   --unpaced                    as fast as it can (BLUEWAKE_WALL_PACE=0): captures in seconds, no in-between frames
   --set KEY=VALUE              any other variable, for every variant (BLUEWAKE_HD_LOOK=1, DOL_AURORA_AO_DEBUG=1, ...)
 Measure:
@@ -142,7 +143,7 @@ def player_data():
     return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "BlueWake"
 
 
-def run(app, card, folder, env, status, skip, timeout=None):
+def run(app, card, folder, env, status, skip, timeout=None, stop_on=None):
     folder.mkdir(parents=True, exist_ok=True)
     data = folder / "data"
     data.mkdir(exist_ok=True)
@@ -183,13 +184,16 @@ def run(app, card, folder, env, status, skip, timeout=None):
         code, timed_out = None, False
         while code is None:
             try:
-                code = process.wait(timeout=min(30, timeout) if timeout else 30)
+                code = process.wait(timeout=min(5 if stop_on else 30, timeout or 30))
             except subprocess.TimeoutExpired:
                 elapsed = time.time() - start
-                if timeout and elapsed > timeout:
+                if stop_on and stop_on in (folder / "log.txt").read_text(errors="replace"):
+                    stop(process)
+                    code = process.wait()
+                elif timeout and elapsed > timeout:
                     stop(process)
                     code, timed_out = process.wait(), True
-                else:
+                elif int(elapsed) % 30 < 5 or not stop_on:
                     print(f"{folder.name}: running {elapsed:.0f} s, {last_line(folder / 'log.txt')}", flush=True)
     note(f"exit {code}" + (" (timed out)" if timed_out else ""))
     frames = len(list(folder.glob("frame-*.ppm")))
@@ -223,6 +227,7 @@ def main():
     parser.add_argument("--max-retraces", type=int)
     parser.add_argument("--unpaced", action="store_true")
     parser.add_argument("--timeout", type=float)
+    parser.add_argument("--stop-on")
     parser.add_argument("--gpu-prof", action="store_true")
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--skip", type=int, default=300)
@@ -256,7 +261,7 @@ def main():
         for repeat in range(1, args.repeat + 1):
             folder = name + (f"-{repeat}" if args.repeat > 1 else "")
             result = run(app, args.card, args.out / folder if folder else args.out, {**env, **overrides}, status,
-                         args.skip, args.timeout)
+                         args.skip, args.timeout, args.stop_on)
             results.append({"variant": name, **result})
     (args.out / "results.json").write_text(json.dumps(results, indent=1))
     if len(results) > 1:

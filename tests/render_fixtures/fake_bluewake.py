@@ -2,7 +2,8 @@
 """A stand-in for BlueWake in tests/test_render_suite.py: the log lines and frames rendered_run.py reads.
 
 Its file name picks what it draws: "bright" a brighter picture than "plain", "flicker" one image that
-blinks, "noise" a few pixels off by one, "slow" a GPU twice as busy, "hang" never ends. A warp arrives at
+blinks, "noise" a few pixels off by one, "slow" a GPU twice as busy, "hang" never ends, "empty"
+finds quest log 1 empty and then never ends (as the game waits at the file select). A warp arrives at
 retrace 840; BLUEWAKE_SAVE_STATE writes a state with only its header (enough for render_suite.state_retrace).
 """
 import gzip
@@ -13,7 +14,9 @@ from pathlib import Path
 
 name = Path(sys.argv[0]).name
 env = os.environ
-if "hang" in name:
+if "empty" in name:
+    print("[warp] quest log 1 is empty; stopped pressing A", flush=True)
+if "hang" in name or "empty" in name:
     time.sleep(600)
 shade = 140 if "bright" in name else 100
 W, H = 32, 24

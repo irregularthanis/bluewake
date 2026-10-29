@@ -302,7 +302,8 @@ def warp_run(app, folder, recipe, quest_log, args, env, stop_after, extra=()):
     # A quest log that is empty leaves the game at the file select: the retrace cap ends that run.
     cmd = [sys.executable, str(HERE / "rendered_run.py"), str(app), str(folder), "--card", str(args.card),
            "--warp", recipe["warp"], "--warp-file", str(quest_log), "--stop-after", str(stop_after),
-           "--max-retraces", "9000", "--timeout", "600", "--set", "BLUEWAKE_PERF_LOG=1",
+           "--max-retraces", "9000", "--timeout", "600", "--stop-on", "is empty; stopped pressing A",
+           "--set", "BLUEWAKE_PERF_LOG=1",
            "--set", "BLUEWAKE_LOOSE_REL_RETRACES=1", *extra]
     if recipe.get("time"):
         cmd += ["--warp-time", str(recipe["time"])]
