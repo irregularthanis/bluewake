@@ -30,10 +30,12 @@ rooms, and writes OUT_DIR/summary.json; `report` prints it. Exit codes: 0 all pa
 changed or a room was flagged, 2 a usage or setup error.
 """
 import argparse
+import gzip
 import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import socket
 import statistics
@@ -45,14 +47,61 @@ HERE = Path(__file__).resolve().parent
 QUICK_ROOMS, FULL_ROOMS = 3, 10
 
 
+PERF = re.compile(r"\[perf\] retrace=(\d+)")
+
+
 def scenes_for(manifest, suite):
     scenes = json.loads(Path(manifest).read_text(encoding="utf-8"))["scenes"]
     return [s for s in scenes if suite == "full" or s.get("suite", "quick") == "quick"]
 
 
-def validate(scenes):
-    """Problems with a manifest's scenes, as messages."""
+def recipes_for(manifest):
+    """How to make each state the scenes use: {file name: {warp, time, file, settle}}."""
+    return json.loads(Path(manifest).read_text(encoding="utf-8")).get("states", {})
+
+
+def state_retrace(path):
+    """The retrace a save state was made at (its BWSTATE1 header), or None if it is not a save state.
+
+    As scripts/bench_tour.py reads it: gzip; HostStateHeader (main.c) has the retrace as the little-endian u64
+    at byte 32 of the HEADER chunk."""
+    try:
+        with gzip.open(path, "rb") as handle:
+            if handle.read(8) != b"BWSTATE1":
+                return None
+            handle.read(4)
+            if not handle.read(16).startswith(b"HEADER") or int.from_bytes(handle.read(8), "little") < 40:
+                return None
+            header = handle.read(40)
+    except (OSError, EOFError):
+        return None
+    return int.from_bytes(header[32:40], "little") if len(header) == 40 else None
+
+
+def shifted(scene, base):
+    """The scene's retraces (counted from its state) as the game counts them: from boot, the state's on."""
+    out = {"max_retraces": base + scene["length"]}
+    if scene.get("pad"):
+        presses = []
+        for press in scene["pad"].split(","):
+            first, _, rest = press.partition(":")
+            presses.append(f"{base + int(first)}:{rest}")
+        out["pad"] = ",".join(presses)
+    if scene.get("capture"):
+        first, _, every = scene["capture"].partition(":")
+        out["capture"] = f"{base + int(first)}:{every}"
+    return out
+
+
+def validate(scenes, recipes=None):
+    """Problems with a manifest's scenes and state recipes, as messages."""
     problems, names = [], set()
+    for state, recipe in (recipes or {}).items():
+        if not re.match(r"^[A-Za-z0-9_]+:\d+:\d+(:\d+)?$", str(recipe.get("warp", ""))):
+            problems.append(f"state {state}: warp must be stage:room:point[:layer]")
+        unknown = set(recipe) - {"about", "warp", "time", "file", "settle"}
+        if unknown:
+            problems.append(f"state {state}: unknown keys {', '.join(sorted(unknown))}")
     for i, s in enumerate(scenes):
         name = s.get("name") or f"scene {i}"
         if not s.get("name"):
@@ -66,11 +115,14 @@ def validate(scenes):
             problems.append(f"{name}: give capture or dump")
         if s.get("dump") and not s.get("smooth"):
             problems.append(f"{name}: dump needs smooth")
-        if not isinstance(s.get("max_retraces"), int):
-            problems.append(f"{name}: max_retraces must be a number")
+        if not isinstance(s.get("length"), int) or s.get("length", 0) <= 0:
+            problems.append(f"{name}: length (retraces after the state) must be a positive number")
+        for press in (s.get("pad") or "").split(",") if s.get("pad") else []:
+            if not re.match(r"^\d+:0x[0-9A-Fa-f]+:\d+", press):
+                problems.append(f"{name}: pad press {press!r} is not RETRACES_AFTER_STATE:0xBUTTONS:LENGTH")
         if s.get("suite", "quick") not in ("quick", "full"):
             problems.append(f"{name}: suite is quick or full")
-        unknown = set(s) - {"name", "about", "state", "pad", "max_retraces", "capture", "dump", "smooth", "scale",
+        unknown = set(s) - {"name", "about", "state", "pad", "length", "capture", "dump", "smooth", "scale",
                             "set", "suite", "min_psnr", "flicker_margin", "region", "timeout"}
         if unknown:
             problems.append(f"{name}: unknown keys {', '.join(sorted(unknown))}")
@@ -128,12 +180,12 @@ def collect_scene(scene, apps, out, args, env):
     """Run one scene on both builds and hash its frames; the frames stay where they are."""
     folder = out / "scenes" / scene["name"]
     cmd = [sys.executable, str(HERE / "rendered_run.py"), str(apps["A"]), str(folder), "--card", str(args.card),
-           "--state", str(Path(args.states) / scene["state"]), "--max-retraces", str(scene["max_retraces"]),
-           "--timeout", str(scene.get("timeout", 600))]
-    for key, flag in (("pad", "--pad"), ("capture", "--capture"), ("dump", "--dump"), ("smooth", "--smooth"),
-                      ("scale", "--scale")):
-        if scene.get(key) is not None:
-            cmd += [flag, str(scene[key])]
+           "--state", str(Path(args.states) / scene["state"]), "--timeout", str(scene.get("timeout", 600))]
+    timed = {**scene, **shifted(scene, state_retrace(Path(args.states) / scene["state"]))}
+    for key, flag in (("max_retraces", "--max-retraces"), ("pad", "--pad"), ("capture", "--capture"),
+                      ("dump", "--dump"), ("smooth", "--smooth"), ("scale", "--scale")):
+        if timed.get(key) is not None:
+            cmd += [flag, str(timed[key])]
     for item in scene.get("set", []):
         cmd += ["--set", item]
     cmd += ["--variant", "A", "--variant", "B", f"APP={apps['B']}"]
@@ -246,20 +298,58 @@ def compare_rooms(rows, floor):
     return out
 
 
+def warp_run(app, folder, recipe, args, env, stop_after, extra=()):
+    cmd = [sys.executable, str(HERE / "rendered_run.py"), str(app), str(folder), "--card", str(args.card),
+           "--warp", recipe["warp"], "--warp-file", str(recipe.get("file", 1)), "--stop-after", str(stop_after),
+           "--timeout", "600", "--set", "BLUEWAKE_PERF_LOG=1", "--set", "BLUEWAKE_LOOSE_REL_RETRACES=1", *extra]
+    if recipe.get("time"):
+        cmd += ["--warp-time", str(recipe["time"])]
+    subprocess.run(cmd, env=env, stdout=sys.stdout, stderr=subprocess.STDOUT)
+    log = folder / "log.txt"
+    return log.read_text(errors="replace") if log.exists() else ""
+
+
+def make_state(name, recipe, app, out, args, env):
+    """Make a scene's save state from its recipe: warp there, see when Link arrives, then warp again and save
+    the state `settle` retraces later (the camera and the room settled). Returns a message on failure."""
+    path = Path(args.states) / name
+    folder = out / "make-state" / Path(name).stem
+    settle = int(recipe.get("settle", 180))
+    print(f"== making {name}: warp {recipe['warp']}, saved {settle} retraces after Link arrives", flush=True)
+    text = warp_run(app, folder / "find", recipe, args, env, stop_after=120)
+    at = text.find("[warp] arrived")
+    after = [int(m) for m in PERF.findall(text[at:])] if at >= 0 else []
+    if not after:
+        return f"{name}: the warp to {recipe['warp']} never arrived (see {folder / 'find' / 'log.txt'})"
+    target = after[0] + settle
+    made = folder / "made.bwstate"
+    made.unlink(missing_ok=True)
+    text = warp_run(app, folder / "save", recipe, args, env, stop_after=settle + 240,
+                    extra=("--set", f"BLUEWAKE_SAVE_STATE={made.resolve()}@{target}"))
+    arrived, saved = text.find("[warp] arrived"), text.find("[state] saved")
+    if arrived < 0 or saved < 0 or saved < arrived or state_retrace(made) != target:
+        return (f"{name}: no state saved after Link arrived at retrace {target} "
+                f"(see {folder / 'save' / 'log.txt'})")
+    Path(args.states).mkdir(parents=True, exist_ok=True)
+    shutil.move(str(made), str(path))
+    print(f"== made {path} at retrace {target}", flush=True)
+    return None
+
+
 def collect(args):
     scenes = scenes_for(args.scenes, args.suite)
-    problems = validate(scenes)
-    # A real state is megabytes; a few bytes is a placeholder, which the game hangs on.
-    missing = [s["state"] for s in scenes
-               if not (Path(args.states) / s["state"]).is_file() or (Path(args.states) / s["state"]).stat().st_size < 4096]
-    if problems or missing:
+    recipes = recipes_for(args.scenes)
+    problems = validate(scenes, recipes)
+    states = dict.fromkeys(s["state"] for s in scenes)
+    # A state that is not one (a placeholder of a few bytes, which the game hangs on) is made again from its recipe.
+    to_make = [n for n in states if state_retrace(Path(args.states) / n) is None and n in recipes]
+    problems += [f"no save state at {Path(args.states) / n} and no recipe to make it" for n in states
+                 if state_retrace(Path(args.states) / n) is None and n not in recipes]
+    if not Path(args.card).is_file():
+        problems.append(f"no card at {args.card}")
+    if problems:
         for p in problems:
             print(f"render_suite: {p}", file=sys.stderr)
-        for m in missing:
-            print(f"render_suite: no state (or a placeholder of a few bytes) at {Path(args.states) / m}", file=sys.stderr)
-        return 2
-    if not Path(args.card).is_file():
-        print(f"render_suite: no card at {args.card}", file=sys.stderr)
         return 2
     mode = display_mode(args.display)
     if mode == "none":
@@ -277,6 +367,12 @@ def collect(args):
     summary = {"host": socket.gethostname(), "machine": platform.platform(), "gpu": gpu_name(),
                "display": f"{mode} {size}" if mode == "headless" else mode, "suite": args.suite,
                "repeat": args.repeat, "a": args.label_a, "b": args.label_b, "scene_list": scenes, "scenes": []}
+    for name in to_make:
+        failed = make_state(name, recipes[name], apps["B"], out, args, env)
+        if failed:
+            print(f"render_suite: {failed}", file=sys.stderr)
+            return 2
+    summary["states"] = {n: state_retrace(Path(args.states) / n) for n in states}
     print(f"== {len(scenes)} scene(s) on {summary['host']} ({summary['gpu'] or 'GPU unknown'}, {summary['display']})",
           flush=True)
     for n, scene in enumerate(scenes, 1):
@@ -392,7 +488,7 @@ def main():
         summary = json.loads(Path(args.summary).read_text(encoding="utf-8"))
         print(report(summary, args.format))
         sys.exit(status(summary))
-    problems = validate(scenes_for(args.scenes, "full"))
+    problems = validate(scenes_for(args.scenes, "full"), recipes_for(args.scenes))
     for p in problems:
         print(p)
     sys.exit(1 if problems else 0)

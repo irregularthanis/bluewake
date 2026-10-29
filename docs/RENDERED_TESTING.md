@@ -170,17 +170,32 @@ scripts end to end with a fake app (`tests/render_fixtures/fake_bluewake.py`) th
 
 **One-time setup on the target:**
 
-- the card: `~/.local/share/BlueWake/GZLE01.card` (`--card` for another). Each run gets a copy.
-- the scenes' save states, named as in `render_scenes.json` (all four scenes use `outset_trees.bwstate` for now:
-  Outset's small trees, saved just before the swings, see Save states below), in `~/bluewake-render/states/` on a
-  remote target or `~/.local/share/BlueWake/render-states/` here (`--states-dir` for another).
+- the card: `~/.local/share/BlueWake/GZLE01.card` (`--card` for another). Each run gets a copy; the states are
+  made from its quest log 1, so use a file that has Outset's hilltop open (any file past the start of the game).
+- nothing for the save states: a state the scenes need that is missing (or is not a save state, such as a
+  placeholder of a few bytes, which the game hangs on) is **made on the target from its recipe** the first time,
+  with build B, and kept for later runs in `~/bluewake-render/states/` (`~/.local/share/BlueWake/render-states/`
+  here; `--states-dir` for another). Delete it to make it again.
 - a display. `--display auto` (the default) runs the game under `gamescope --backend headless` when gamescope is
   there (SteamOS has it), at 1280x800 on a Deck (`--size` for another). Without it, the game uses the running
   desktop session (Desktop Mode on a Deck, `DISPLAY=:0`).
 - `python3` and `tar` (SteamOS has both). numpy and Pillow are needed only on the machine running `render_test`.
 
-**Adding a scene.** Make a state (F5, or `BLUEWAKE_SAVE_STATE=FILE@RETRACE`), put it in the states folder, and add
-an entry to `render_scenes.json`:
+**Save states from a recipe.** `render_scenes.json` has a `states` section:
+
+```json
+"outset_trees.bwstate": {"warp": "sea:44:8:0", "time": "noon", "file": 1, "settle": 180}
+```
+
+To make it, the suite warps there once (stage select, quest log `file`, `time`) and reads the log for the first
+`[perf]` retrace after `[warp] arrived`. Then it warps again and saves the state (`BLUEWAKE_SAVE_STATE`) `settle`
+retraces after that (180 is 3 seconds, for the camera and the room to settle). It checks that the save came after
+Link arrived and that the file's header holds that retrace. `sea:44:8:0` is Outset's hilltop, by the small
+trees where #491's shadows flickered (fixed in #494).
+
+**Adding a scene.** Scenes count their retraces from their state, so a state made again (at a slightly different
+retrace, as a warp from boot is not frame-exact) still fits. The suite reads the state's retrace from its header
+and adds it. Add an entry to `render_scenes.json`, with a recipe under `states` for a new place:
 
 ```json
 {
@@ -188,18 +203,21 @@ an entry to `render_scenes.json`:
  "about": "what it covers",
  "suite": "full",
  "state": "windfall_night.bwstate",
- "max_retraces": 2400,
- "capture": "2100:30",
+ "length": 300,
+ "pad": "30:0x0200:6",
+ "capture": "30:30",
  "set": ["BLUEWAKE_HD_LOOK=1"],
  "region": "0,0.1,1,0.9",
  "min_psnr": 40
 }
 ```
 
-Required: `name`, `state`, `max_retraces` (counted from the state's own retrace), and `capture` or `dump` (`dump`
-also needs `smooth`). Optional: `pad`, `scale`, `set`, `region` (to leave the HUD out), `min_psnr`, `flicker_margin`
-(default 50 blink pixels), `timeout` (seconds, default 600) and `suite` (`quick` by default). `python3
-scripts/render_suite.py validate` checks the file. CI runs it too.
+Required: `name`, `state`, `length` (retraces to run after the state), and `capture` (`AFTER:EVERY`, retraces
+after the state) or `dump` (game frames; also needs `smooth`). Optional: `pad` (each press's retrace counted after
+the state), `scale`, `set`, `region` (to leave the HUD out), `min_psnr`, `flicker_margin` (default 50 blink pixels),
+`timeout` (seconds, default 600) and `suite` (`quick` by default). A state made by hand (F5, or
+`BLUEWAKE_SAVE_STATE=FILE@RETRACE`) works too: put it in the states folder under the scene's `state` name. Without
+a recipe it is never remade. `python3 scripts/render_suite.py validate` checks the file. CI runs it too.
 
 ## Rules to give the agent first
 

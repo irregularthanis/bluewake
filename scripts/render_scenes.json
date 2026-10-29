@@ -1,11 +1,20 @@
 {
+ "states": {
+  "outset_trees.bwstate": {
+   "about": "Outset's hilltop, by the small trees (#491, #494): quest log 1, noon, 3 s after Link arrives",
+   "warp": "sea:44:8:0",
+   "time": "noon",
+   "file": 1,
+   "settle": 180
+  }
+ },
  "scenes": [
   {
    "name": "outset-trees-swing",
-   "about": "#491: two sword swings at Outset's small trees, sun shadows on, 60 FPS Smooth Motion dump",
+   "about": "#491: two sword swings by Outset's small trees, sun shadows on, 60 FPS Smooth Motion dump",
    "state": "outset_trees.bwstate",
-   "pad": "1885:0x0200:6,1915:0x0200:6",
-   "max_retraces": 2035,
+   "pad": "30:0x0200:6,60:0x0200:6",
+   "length": 180,
    "dump": "0:80",
    "smooth": "1",
    "scale": 2,
@@ -16,8 +25,8 @@
    "name": "outset-trees-still",
    "about": "The same place standing still, HD look, a capture every 30 retraces",
    "state": "outset_trees.bwstate",
-   "max_retraces": 2200,
-   "capture": "1900:30",
+   "length": 330,
+   "capture": "30:30",
    "set": ["BLUEWAKE_HD_LOOK=1"],
    "region": "0,0.1,1,0.9"
   },
@@ -26,8 +35,8 @@
    "about": "The same place with the HD look off",
    "suite": "full",
    "state": "outset_trees.bwstate",
-   "max_retraces": 2200,
-   "capture": "1900:30",
+   "length": 330,
+   "capture": "30:30",
    "set": ["BLUEWAKE_HD_LOOK=0"],
    "region": "0,0.1,1,0.9"
   },
@@ -36,8 +45,8 @@
    "about": "Ambient occlusion at render scale 3",
    "suite": "full",
    "state": "outset_trees.bwstate",
-   "max_retraces": 2200,
-   "capture": "1900:60",
+   "length": 330,
+   "capture": "30:60",
    "scale": 3,
    "set": ["BLUEWAKE_HD_LOOK=1", "BLUEWAKE_HD_AO=1"],
    "region": "0,0.1,1,0.9"

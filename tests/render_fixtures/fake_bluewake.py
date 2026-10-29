@@ -2,8 +2,10 @@
 """A stand-in for BlueWake in tests/test_render_suite.py: the log lines and frames rendered_run.py reads.
 
 Its file name picks what it draws: "bright" a brighter picture than "plain", "flicker" one image that
-blinks, "noise" a few pixels off by one, "slow" a GPU twice as busy, "hang" never ends.
+blinks, "noise" a few pixels off by one, "slow" a GPU twice as busy, "hang" never ends. A warp arrives at
+retrace 840; BLUEWAKE_SAVE_STATE writes a state with only its header (enough for render_suite.state_retrace).
 """
+import gzip
 import os
 import sys
 import time
@@ -40,11 +42,23 @@ if env.get("DOL_AURORA_FRAME_INTERP_DUMP"):
     for n in range(int(env["DOL_AURORA_FRAME_INTERP_DUMP_FROM"]), int(env["DOL_AURORA_FRAME_INTERP_DUMP_TO"])):
         (folder / f"frame{n:06d}-between.ppm").write_bytes(picture(n, True))
         (folder / f"frame{n:06d}-real.ppm").write_bytes(picture(n))
-if env.get("BLUEWAKE_WARP"):
-    print("[warp] arrived")
+def save_state(path, retrace):
+    with gzip.open(path, "wb") as out:
+        out.write(b"BWSTATE1" + bytes(4) + b"HEADER".ljust(16, b"\0") + (40).to_bytes(8, "little")
+                  + bytes(32) + retrace.to_bytes(8, "little"))
+    print(f"[state] saved {path} retrace={retrace}")
+
+
+saves = [item.rpartition("@") for item in env.get("BLUEWAKE_SAVE_STATE", "").split(",") if item]
 gpu = 8.0 if "slow" in name else 4.0
-for i in range(6):
-    print(f"[perf] retrace={600 + 120 * i} rate=60.0 worst_ms=17.0 hitches=0 busy={60 + i % 2}.0%")
-    print(f"[gpu-prof] frames=240 frame_ms=16.6 max=17.0 busy_ms={gpu + 0.01 * i} | ssao {gpu / 2:.2f} x1 "
+for i in range(12):
+    retrace = 600 + 60 * i
+    for path, _, at in saves:
+        if retrace - 60 < int(at) <= retrace:
+            save_state(path, int(at))
+    if env.get("BLUEWAKE_WARP") and retrace == 840:
+        print("[warp] arrived: Link is in the room")
+    print(f"[perf] retrace={retrace} rate=60.0 worst_ms=17.0 hitches=0 busy={60 + i % 2}.0%")
+    print(f"[gpu-prof] frames=240 frame_ms=16.6 max=17.0 busy_ms={gpu + 0.01 * (i % 6)} | ssao {gpu / 2:.2f} x1 "
           f"| main {gpu / 4:.2f} x1 | copy {gpu / 8:.2f} x1")
 sys.exit(1 if env.get("BLUEWAKE_WARP") else 0)

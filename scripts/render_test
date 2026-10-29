@@ -21,7 +21,9 @@ Options:
   --format terminal|github  the final table (default: terminal)
   --card PATH               memory card on the target; never changed
                             (default: ~/.local/share/BlueWake/GZLE01.card)
-  --states-dir PATH         the scenes' save states on the target
+  --states-dir PATH         the scenes' save states on the target; one that
+                            is missing is made there from its recipe in
+                            render_scenes.json (a warp, then a save)
                             (default remote: ~/bluewake-render/states,
                              local: ~/.local/share/BlueWake/render-states)
   --run-directory PATH      where runs go on the target
@@ -221,8 +223,7 @@ for command in bash python3 sha256sum tee tar; do
     command -v "$command" >/dev/null || { echo "missing on target: $command" >&2; exit 2; }
 done
 test -s "$card" || { echo "no memory card at $card" >&2; exit 2; }
-test -d "$states" || { echo "no save states folder at $states" >&2; exit 2; }
-mkdir -p "$parent/$2/harness"
+mkdir -p "$states" "$parent/$2/harness"
 printf '%s\n' "$parent/$2"
 CHECK
 ) || die "target check failed"

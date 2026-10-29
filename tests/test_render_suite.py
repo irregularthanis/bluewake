@@ -48,12 +48,13 @@ class Manifest(unittest.TestCase):
 
     def test_problems_are_named(self):
         problems = render_suite.validate([
-            {'name': 'a', 'state': 's', 'max_retraces': 10, 'dump': '0:5'},
-            {'name': 'a', 'max_retraces': '10', 'capture': '1:1', 'colour': 'blue'},
-            {'name': 'b', 'state': 's', 'max_retraces': 10}])
+            {'name': 'a', 'state': 's', 'length': 10, 'dump': '0:5'},
+            {'name': 'a', 'length': '10', 'capture': '1:1', 'colour': 'blue', 'pad': '1885:B:6'},
+            {'name': 'b', 'state': 's', 'length': 10}], {'s': {'warp': 'Outset'}})
         text = '\n'.join(problems)
-        for expected in ('dump needs smooth', 'name used twice', 'no state', 'max_retraces must be a number',
-                         'unknown keys colour', 'b: give capture or dump'):
+        for expected in ('dump needs smooth', 'name used twice', 'no state', 'length (retraces after the state)',
+                         'unknown keys colour', 'b: give capture or dump', "pad press '1885:B:6'",
+                         'state s: warp must be stage:room:point'):
             self.assertIn(expected, text)
 
 
@@ -201,22 +202,49 @@ class EndToEnd(Work):
                 self.assertEqual(differing, ['outset-trees-swing', 'outset-trees-still'])
                 self.assertEqual({s['why'] for s in summary['scenes']}, {'frames differ but were not copied here'})
 
-    def test_a_missing_state_stops_before_running(self):
+    def test_a_missing_or_placeholder_state_is_made_from_its_recipe(self):
+        (self.dir / 'states').mkdir()
+        (self.dir / 'states' / 'outset_trees.bwstate').write_bytes(b's\n')  # a placeholder: the game hangs on it
+        (self.dir / 'card').write_bytes(b'card')
+        out = self.dir / 'out'
+        code = subprocess.run([sys.executable, str(SCRIPTS / 'render_suite.py'), 'collect', str(self.app('plain')),
+                               str(self.app('plain-b')), str(out), '--card', str(self.dir / 'card'), '--states',
+                               str(self.dir / 'states'), '--repeat', '1', '--display', 'desktop'],
+                              capture_output=True, text=True)
+        self.assertEqual(code.returncode, 0, code.stdout + code.stderr)
+        # the fake's warp arrives at 840; its first [perf] after that is 840, and the recipe settles 180
+        self.assertEqual(render_suite.state_retrace(self.dir / 'states' / 'outset_trees.bwstate'), 1020)
+        self.assertIn('made', code.stdout)
+        swing = json.loads((out / 'scenes' / 'outset-trees-swing' / 'results.json').read_text())
+        self.assertTrue(all(r['frames'] or r['dumped'] for r in swing))
+        status = (out / 'scenes' / 'outset-trees-still' / 'status.txt').read_text()
+        self.assertIn('A started', status)
+
+    def test_a_state_without_a_recipe_stops_before_running(self):
         (self.dir / 'states').mkdir()
         (self.dir / 'card').write_bytes(b'card')
-        code = subprocess.run([sys.executable, str(SCRIPTS / 'render_suite.py'), 'run', str(self.app('plain')),
-                               str(self.app('plain-b')), str(self.dir / 'out'), '--card', str(self.dir / 'card'),
-                               '--states', str(self.dir / 'states'), '--display', 'desktop'],
-                              capture_output=True, text=True)
-        self.assertEqual(code.returncode, 2)
-        self.assertIn('no state', code.stderr)
-        (self.dir / 'states' / 'outset_trees.bwstate').write_bytes(b's\n')  # a placeholder: the game hangs on it
+        scenes = self.dir / 'scenes.json'
+        scenes.write_text(json.dumps({'scenes': [{'name': 'x', 'state': 'mine.bwstate', 'length': 60,
+                                                  'capture': '0:30'}]}))
         code = subprocess.run([sys.executable, str(SCRIPTS / 'render_suite.py'), 'collect', str(self.app('plain')),
                                str(self.app('plain-b')), str(self.dir / 'out'), '--card', str(self.dir / 'card'),
-                               '--states', str(self.dir / 'states'), '--display', 'desktop'],
+                               '--states', str(self.dir / 'states'), '--scenes', str(scenes), '--display', 'desktop'],
                               capture_output=True, text=True)
         self.assertEqual(code.returncode, 2)
-        self.assertIn('placeholder', code.stderr)
+        self.assertIn('no recipe to make it', code.stderr)
+
+
+class Timing(unittest.TestCase):
+    def test_scene_retraces_count_from_the_state(self):
+        scene = {'length': 180, 'pad': '30:0x0200:6,60:0x0200:6:0:80', 'capture': '30:30'}
+        self.assertEqual(render_suite.shifted(scene, 1000),
+                         {'max_retraces': 1180, 'pad': '1030:0x0200:6,1060:0x0200:6:0:80', 'capture': '1030:30'})
+
+    def test_a_file_that_is_not_a_state_has_no_retrace(self):
+        with tempfile.NamedTemporaryFile() as f:
+            f.write(b's\n')
+            f.flush()
+            self.assertIsNone(render_suite.state_retrace(f.name))
 
 
 class Wrapper(unittest.TestCase):
