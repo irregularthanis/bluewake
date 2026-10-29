@@ -33,16 +33,19 @@ Options:
                             (default: auto, gamescope if there is one)
   --size WxH                headless size (default 1280x800 on a Deck)
   --ssh-key PATH            SSH private key for user@host
-  --fetch                   copy each scene's worst.png (A, B, difference)
-                            back from a remote run
   -h, --help                this help
 
 Remote runs use your SSH keys and ~/.ssh/config, or ask for the password
 once; one connection is reused for the whole run. No environment variables.
 
+The target only renders, with python3 and nothing else: the analysis runs
+here and needs numpy and Pillow (pip install --user numpy pillow). From the
+target come the logs, timings and a SHA-256 of every frame; frames themselves
+only for the scenes whose frames differ between A and B. Builds, card and
+save states stay on the target; what comes back is under build/render-tests/.
+
 Exit: 0 everything passed, 1 a scene failed or changed or a room was flagged,
-2 a usage or setup error. Builds, card, states and frames stay on the target;
-only summary.json (and with --fetch the worst.png sheets) comes back.
+2 a usage or setup error.
 EOF
 }
 
@@ -105,7 +108,6 @@ states=
 run_parent=
 display=auto
 size=
-fetch=0
 ssh_key=
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -118,7 +120,6 @@ while [[ $# -gt 0 ]]; do
         --display) display=${2:?--display needs auto, headless or desktop}; shift ;;
         --size) size=${2:?--size needs WxH}; shift ;;
         --ssh-key) ssh_key=${2:?--ssh-key needs a path}; shift ;;
-        --fetch) fetch=1 ;;
         -h|--help) usage; exit 0 ;;
         *) die "unknown argument: $1" ;;
     esac
@@ -135,11 +136,12 @@ done
 
 scripts=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
 repo=$(dirname "$scripts")
-harness=(render_suite.py rendered_run.py frame_compare.py bench_rooms.py bench_rooms.tsv render_scenes.json)
-for file in "${harness[@]}"; do
+harness=(render_suite.py rendered_run.py bench_rooms.py bench_rooms.tsv render_scenes.json)
+for file in "${harness[@]}" frame_compare.py; do
     [[ -f "$scripts/$file" ]] || die "missing beside render_test: $file"
 done
 python3 "$scripts/render_suite.py" validate >/dev/null || die "scripts/render_scenes.json is not valid"
+python3 -c 'import numpy, PIL' 2>/dev/null || die "the analysis here needs numpy and Pillow: pip install --user numpy pillow"
 
 image_a=$(find_image "$build_a")
 image_b=$(find_image "$build_b")
@@ -152,30 +154,19 @@ stamp=$(date -u +%Y%m%dT%H%M%SZ)
 run_name="${safe_a}-vs-${safe_b}-$stamp"
 local_results="$repo/build/render-tests/$run_name"
 
-# The suite itself, the same here and on a remote machine: $1 the run folder
-# (with the harness in harness/), then the options. Missing numpy or Pillow
-# are installed once into a venv beside the runs. Over SSH this script is
-# read from stdin, so nothing it starts may read stdin.
+# The rendering half, the same here and on a remote machine: $1 the run folder
+# (with the harness in harness/), then the options. It needs only python3.
+# Over SSH this script is read from stdin, so nothing it starts may read stdin.
 read -r -d '' DRIVER <<'REMOTE' || true
 set -euo pipefail
 root=$1 app_a=$2 app_b=$3 card=$4 states=$5 suite=$6 repeat=$7 display=$8 size=$9 label_a=${10} label_b=${11}
 card=${card/#\~/$HOME}
 states=${states/#\~/$HOME}
-python=python3
-if ! python3 -c 'import numpy, PIL' 2>/dev/null; then
-    venv="$(dirname "$root")/.venv"
-    if [[ ! -x "$venv/bin/python" ]] || ! "$venv/bin/python" -c 'import numpy, PIL' 2>/dev/null; then
-        echo "Installing numpy and Pillow into $venv (once)..."
-        python3 -m venv "$venv"
-        "$venv/bin/python" -m pip install --quiet --disable-pip-version-check numpy pillow </dev/null
-    fi
-    python="$venv/bin/python"
-fi
 extra=()
 [[ -n "$size" ]] && extra+=(--size "$size")
 cd "$root"
 set +e
-"$python" -u harness/render_suite.py run "$app_a" "$app_b" "$root/out" --card "$card" --states "$states" \
+python3 -u harness/render_suite.py collect "$app_a" "$app_b" "$root/out" --card "$card" --states "$states" \
     --suite "$suite" --repeat "$repeat" --display "$display" --label-a "$label_a" --label-b "$label_b" \
     "${extra[@]}" </dev/null 2>&1 | tee "$root/suite.log"
 exit "${PIPESTATUS[0]}"
@@ -183,7 +174,6 @@ REMOTE
 
 printf 'A (candidate): %s\n  %s\n' "$label_a" "$image_a"
 printf 'B (reference): %s\n  %s\n' "$label_b" "$image_b"
-mkdir -p "$local_results"
 status=0
 
 if [[ -z "$target" ]]; then
@@ -198,9 +188,7 @@ if [[ -z "$target" ]]; then
     printf 'Running here, evidence in %s\n' "$root"
     bash -c "$DRIVER" render_test "$root" "$image_a" "$image_b" "$card" "$states" "$suite" "$repeat" \
         "$display" "$size" "$label_a" "$label_b" || status=$?
-    [[ -f "$root/out/summary.json" && "$root" != "$local_results" ]] &&
-        cp "$root/out/summary.json" "$local_results/summary.json"
-    [[ "$root" == "$local_results" ]] && ln -sf out/summary.json "$local_results/summary.json"
+    results="$root/out"
 else
     for dependency in ssh scp sha256sum; do
         command -v "$dependency" >/dev/null || die "missing local dependency: $dependency"
@@ -229,7 +217,7 @@ else
     root=$("${ssh_command[@]}" "$target" "bash -s -- $(quote "$run_parent" "$run_name" "$card" "$states")" <<'CHECK'
 set -eu
 parent=${1/#\~/$HOME} card=${3/#\~/$HOME} states=${4/#\~/$HOME}
-for command in bash python3 sha256sum tee; do
+for command in bash python3 sha256sum tee tar; do
     command -v "$command" >/dev/null || { echo "missing on target: $command" >&2; exit 2; }
 done
 test -s "$card" || { echo "no memory card at $card" >&2; exit 2; }
@@ -253,21 +241,31 @@ CHECK
 
     "${ssh_command[@]}" "$target" "bash -s -- $(quote "$root" "$root/$safe_a.AppImage" "$root/$safe_b.AppImage" \
         "$card" "$states" "$suite" "$repeat" "$display" "$size" "$label_a" "$label_b")" <<<"$DRIVER" || status=$?
-    "${scp_command[@]}" -q "$target:$root/out/summary.json" "$local_results/summary.json" 2>/dev/null || true
-    if [[ $fetch -eq 1 ]]; then
-        "${ssh_command[@]}" "$target" "cd '$root/out/scenes' 2>/dev/null && ls -d */worst.png 2>/dev/null" |
-            while read -r sheet; do
-                mkdir -p "$local_results/$(dirname "$sheet")"
-                "${scp_command[@]}" -q "$target:$root/out/scenes/$sheet" "$local_results/$sheet" </dev/null
-            done
+    results="$local_results/out"
+    mkdir -p "$local_results"
+    printf 'Copying back logs, timings and frame hashes...\n'
+    "${ssh_command[@]}" "$target" "cd $(quote "$root") && tar czf - --exclude='*.ppm' --exclude='launch*' out" |
+        tar xzf - -C "$local_results" || true
+    if [[ -s "$results/collected.json" ]]; then
+        mapfile -t scenes < <(python3 "$scripts/render_suite.py" differing "$results")
+        for scene in "${scenes[@]}"; do
+            [[ -n "$scene" ]] || continue
+            printf 'Copying back %s frames (A and B differ)...\n' "$scene"
+            "${ssh_command[@]}" "$target" "cd $(quote "$root/out/scenes") && tar czf - $(quote "$scene/A" "$scene/B")" \
+                </dev/null | tar xzf - -C "$results/scenes"
+        done
     fi
 fi
 
-if [[ ! -s "$local_results/summary.json" ]]; then
-    printf 'render_test: the suite wrote no summary (exit %s); see suite.log in the run folder\n' "$status" >&2
+if [[ ! -s "$results/collected.json" ]]; then
+    printf 'render_test: the target collected nothing (exit %s); see suite.log in the run folder there\n' "$status" >&2
     exit $((status == 0 ? 2 : status))
 fi
+printf '\nAnalysing here...\n'
+status=0
+python3 "$scripts/render_suite.py" analyze "$results" || status=$?
+[[ -s "$results/summary.json" ]] || exit $((status == 0 ? 2 : status))
 printf '\n'
-python3 "$scripts/render_suite.py" report "$local_results/summary.json" --format "$output_format" || true
-printf '\nSummary: %s\n' "$local_results/summary.json"
+python3 "$scripts/render_suite.py" report "$results/summary.json" --format "$output_format" || true
+printf '\nSummary: %s\n' "$results/summary.json"
 exit "$status"

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Rendered tests of build A against build B on this machine: the scenes' frames and the rooms' speed.
 
-  python3 scripts/render_suite.py run APP_A APP_B OUT_DIR --card CARD --states STATES_DIR
+  python3 scripts/render_suite.py collect APP_A APP_B OUT_DIR --card CARD --states STATES_DIR
                                   [--scenes scripts/render_scenes.json] [--suite quick|full] [--repeat 3]
                                   [--display auto|headless|desktop|none] [--size 1280x800]
                                   [--label-a A] [--label-b B]
+  python3 scripts/render_suite.py differing OUT_DIR
+  python3 scripts/render_suite.py analyze OUT_DIR [--floor 5]
+  python3 scripts/render_suite.py run ...          (collect, then analyze, on one machine)
   python3 scripts/render_suite.py report OUT_DIR/summary.json [--format terminal|github]
 
 scripts/render_test runs this on a Steam Deck (or any Linux machine) over SSH, or here; use that. Build B is
@@ -19,10 +22,15 @@ Rooms: scripts/bench_rooms.py over the costliest rooms (top 3 quick, top 10 full
 room, --repeat runs each. A room is flagged when A's GPU time or busy % differs from B's by more than both
 --floor percent and twice the spread between repeats.
 
-OUT_DIR/summary.json has everything; `report` prints it. Exit codes: 0 all pass, 1 a scene failed or
+collect is the part that renders, on the target; it needs only python3 (no numpy): it runs the scenes and
+rooms and writes OUT_DIR/collected.json and a SHA-256 for every frame (scenes/NAME/hashes.json). differing names
+the scenes whose frames differ between A and B, the only frames that need copying back. analyze, where numpy
+and Pillow are, judges the scenes (identical by their hashes alone, the rest with frame_compare.py check) and the
+rooms, and writes OUT_DIR/summary.json; `report` prints it. Exit codes: 0 all pass, 1 a scene failed or
 changed or a room was flagged, 2 a usage or setup error.
 """
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -116,7 +124,8 @@ def gpu_name():
         return ""
 
 
-def run_scene(scene, apps, out, args, env):
+def collect_scene(scene, apps, out, args, env):
+    """Run one scene on both builds and hash its frames; the frames stay where they are."""
     folder = out / "scenes" / scene["name"]
     cmd = [sys.executable, str(HERE / "rendered_run.py"), str(apps["A"]), str(folder), "--card", str(args.card),
            "--state", str(Path(args.states) / scene["state"]), "--max-retraces", str(scene["max_retraces"]),
@@ -129,11 +138,20 @@ def run_scene(scene, apps, out, args, env):
         cmd += ["--set", item]
     cmd += ["--variant", "A", "--variant", "B", f"APP={apps['B']}"]
     subprocess.run(cmd, env=env, stdout=sys.stdout, stderr=subprocess.STDOUT)
-    runs = {}
     results = folder / "results.json"
-    for r in (json.loads(results.read_text()) if results.exists() else []):
-        runs[r["variant"]] = r
-    out_row = {"name": scene["name"], "runs": runs}
+    runs = {r["variant"]: r for r in (json.loads(results.read_text()) if results.exists() else [])}
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "hashes.json").write_text(json.dumps({v: frame_hashes(folder / v) for v in ("A", "B")}, indent=1))
+    return {"name": scene["name"], "runs": runs}
+
+
+def frame_hashes(folder):
+    """{frame file: SHA-256} for a run's captures or dump."""
+    return {str(path.relative_to(folder)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(list(folder.glob("*.ppm")) + list(folder.glob("dump/*.ppm")))}
+
+
+def run_problems(runs):
     problems = []
     for v in ("A", "B"):
         r = runs.get(v)
@@ -147,9 +165,33 @@ def run_scene(scene, apps, out, args, env):
             problems.append(f"{v} safe mode")
         elif not (r.get("frames") or r.get("dumped")):
             problems.append(f"{v} made no frames")
+    return problems
+
+
+def hashes_differ(folder):
+    path = folder / "hashes.json"
+    if not path.exists():
+        return True
+    hashes = json.loads(path.read_text())
+    return not hashes.get("A") or hashes.get("A") != hashes.get("B")
+
+
+def judge_scene(scene, row, out):
+    """A scene's verdict: from its hashes when A and B match, else from its frames with frame_compare.py check."""
+    folder = out / "scenes" / scene["name"]
+    row = dict(row)
+    problems = run_problems(row["runs"])
     if problems:
-        out_row.update(verdict="failed", why=", ".join(problems))
-        return out_row
+        row.update(verdict="failed", why=", ".join(problems))
+        return row
+    if not hashes_differ(folder):
+        images = len(json.loads((folder / "hashes.json").read_text())["A"])
+        row.update(verdict="identical", images=images, max_diff=0, min_psnr=None, flicker_a="=", flicker_b="=",
+                   why="")
+        return row
+    if not any((folder / "A").glob("**/*.ppm")):
+        row.update(verdict="failed", why="frames differ but were not copied here")
+        return row
     check = folder / "check.json"
     cmd = [sys.executable, str(HERE / "frame_compare.py"), "check", str(folder / "A"), str(folder / "B"),
            "--json", str(check), "--sheet", str(folder / "worst.png"),
@@ -158,10 +200,10 @@ def run_scene(scene, apps, out, args, env):
         cmd += ["--region", scene["region"]]
     subprocess.run(cmd, stdout=sys.stdout, stderr=subprocess.STDOUT)
     if not check.exists():
-        out_row.update(verdict="failed", why="frame_compare.py check wrote nothing")
-        return out_row
-    out_row.update(json.loads(check.read_text()))
-    return out_row
+        row.update(verdict="failed", why="frame_compare.py check wrote nothing")
+        return row
+    row.update(json.loads(check.read_text()))
+    return row
 
 
 def read_rooms_tsv(path):
@@ -204,7 +246,7 @@ def compare_rooms(rows, floor):
     return out
 
 
-def run(args):
+def collect(args):
     scenes = scenes_for(args.scenes, args.suite)
     problems = validate(scenes)
     missing = [s["state"] for s in scenes if not (Path(args.states) / s["state"]).is_file()]
@@ -216,11 +258,6 @@ def run(args):
         return 2
     if not Path(args.card).is_file():
         print(f"render_suite: no card at {args.card}", file=sys.stderr)
-        return 2
-    try:
-        import numpy, PIL  # noqa: F401  (frame_compare.py needs them)
-    except ImportError:
-        print("render_suite: needs numpy and Pillow (pip install --user numpy pillow)", file=sys.stderr)
         return 2
     mode = display_mode(args.display)
     if mode == "none":
@@ -237,12 +274,12 @@ def run(args):
         apps["B"] = launcher(args.app_b, out / "launch-b", mode, size)
     summary = {"host": socket.gethostname(), "machine": platform.platform(), "gpu": gpu_name(),
                "display": f"{mode} {size}" if mode == "headless" else mode, "suite": args.suite,
-               "repeat": args.repeat, "a": args.label_a, "b": args.label_b, "scenes": [], "rooms": []}
+               "repeat": args.repeat, "a": args.label_a, "b": args.label_b, "scene_list": scenes, "scenes": []}
     print(f"== {len(scenes)} scene(s) on {summary['host']} ({summary['gpu'] or 'GPU unknown'}, {summary['display']})",
           flush=True)
     for n, scene in enumerate(scenes, 1):
         print(f"== scene {n}/{len(scenes)}: {scene['name']}", flush=True)
-        summary["scenes"].append(run_scene(scene, apps, out, args, env))
+        summary["scenes"].append(collect_scene(scene, apps, out, args, env))
     top = QUICK_ROOMS if args.suite == "quick" else FULL_ROOMS
     print(f"== rooms: the costliest {top}, {args.repeat} run(s) each build", flush=True)
     cmd = [sys.executable, str(HERE / "bench_rooms.py"), str(apps["A"]), str(out / "rooms"), "--card",
@@ -250,7 +287,29 @@ def run(args):
            str(args.repeat), "--rendered-run", str(HERE / "rendered_run.py"),
            "--variant", "A", "--variant", "B", f"APP={apps['B']}"]
     subprocess.run(cmd, env=env, stdout=sys.stdout, stderr=subprocess.STDOUT)
-    summary["rooms"] = compare_rooms(read_rooms_tsv(out / "rooms" / "rooms.tsv"), args.floor)
+    (out / "collected.json").write_text(json.dumps(summary, indent=1))
+    print(f"== wrote {out / 'collected.json'}")
+    return 0
+
+
+def differing(out):
+    """The scenes whose frames are needed to judge them: A and B ran, and their frames differ."""
+    collected = json.loads((Path(out) / "collected.json").read_text())
+    return [row["name"] for row in collected["scenes"]
+            if not run_problems(row["runs"]) and hashes_differ(Path(out) / "scenes" / row["name"])]
+
+
+def analyze(out, floor):
+    out = Path(out)
+    try:
+        import numpy, PIL  # noqa: F401  (frame_compare.py needs them)
+    except ImportError:
+        print("render_suite: analyze needs numpy and Pillow (pip install --user numpy pillow)", file=sys.stderr)
+        return 2
+    summary = json.loads((out / "collected.json").read_text())
+    scenes = {s["name"]: s for s in summary.pop("scene_list")}
+    summary["scenes"] = [judge_scene(scenes[row["name"]], row, out) for row in summary["scenes"]]
+    summary["rooms"] = compare_rooms(read_rooms_tsv(out / "rooms" / "rooms.tsv"), floor)
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
     print(f"== wrote {out / 'summary.json'}")
     return status(summary)
@@ -303,7 +362,41 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter,
                                      epilog="\n".join(__doc__.splitlines()[2:]))
     sub = parser.add_subparsers(dest="command", required=True)
-    p = sub.add_parser("run")
+    for command in ("collect", "run"):
+        p = sub.add_parser(command)
+        collect_arguments(p)
+    p = sub.add_parser("differing")
+    p.add_argument("out")
+    p = sub.add_parser("analyze")
+    p.add_argument("out")
+    p.add_argument("--floor", type=float, default=5.0, help="percent a room must differ by to be flagged")
+    p = sub.add_parser("report")
+    p.add_argument("summary")
+    p.add_argument("--format", choices=("terminal", "github"), default="terminal")
+    p = sub.add_parser("validate")
+    p.add_argument("scenes", nargs="?", default=str(HERE / "render_scenes.json"))
+    args = parser.parse_args()
+    if args.command == "collect":
+        sys.exit(collect(args))
+    if args.command == "run":
+        code = collect(args)
+        sys.exit(code if code else analyze(args.out, args.floor))
+    if args.command == "differing":
+        print("\n".join(differing(args.out)))
+        sys.exit(0)
+    if args.command == "analyze":
+        sys.exit(analyze(args.out, args.floor))
+    if args.command == "report":
+        summary = json.loads(Path(args.summary).read_text(encoding="utf-8"))
+        print(report(summary, args.format))
+        sys.exit(status(summary))
+    problems = validate(scenes_for(args.scenes, "full"))
+    for p in problems:
+        print(p)
+    sys.exit(1 if problems else 0)
+
+
+def collect_arguments(p):
     p.add_argument("app_a")
     p.add_argument("app_b")
     p.add_argument("out")
@@ -317,22 +410,6 @@ def main():
     p.add_argument("--size", help="WxH for headless gamescope (default 1280x800 on a Deck, else 1280x720)")
     p.add_argument("--label-a", default="A")
     p.add_argument("--label-b", default="B")
-    p = sub.add_parser("report")
-    p.add_argument("summary")
-    p.add_argument("--format", choices=("terminal", "github"), default="terminal")
-    p = sub.add_parser("validate")
-    p.add_argument("scenes", nargs="?", default=str(HERE / "render_scenes.json"))
-    args = parser.parse_args()
-    if args.command == "run":
-        sys.exit(run(args))
-    if args.command == "report":
-        summary = json.loads(Path(args.summary).read_text(encoding="utf-8"))
-        print(report(summary, args.format))
-        sys.exit(status(summary))
-    problems = validate(scenes_for(args.scenes, "full"))
-    for p in problems:
-        print(p)
-    sys.exit(1 if problems else 0)
 
 
 if __name__ == "__main__":

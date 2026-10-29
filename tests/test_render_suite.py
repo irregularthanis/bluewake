@@ -178,6 +178,29 @@ class EndToEnd(Work):
         self.assertEqual({s['verdict'] for s in summary['scenes']}, {'changed'})
         self.assertTrue(all(any(f.startswith('gpu_ms +') for f in r['flags']) for r in summary['rooms']))
 
+    def test_collect_needs_no_frames_back_when_a_and_b_match(self):
+        (self.dir / 'states').mkdir()
+        (self.dir / 'states' / 'outset_trees.bwstate').write_bytes(b'state')
+        (self.dir / 'card').write_bytes(b'card')
+        suite = [sys.executable, str(SCRIPTS / 'render_suite.py')]
+        for a, b in (('plain', 'plain-b'), ('bright', 'plain')):
+            out = self.dir / f'{a}-{b}'
+            subprocess.run(suite + ['collect', str(self.app(a)), str(self.app(b)), str(out), '--card',
+                                    str(self.dir / 'card'), '--states', str(self.dir / 'states'), '--repeat', '1',
+                                    '--display', 'desktop'], stdout=subprocess.DEVNULL, check=True)
+            differing = subprocess.run(suite + ['differing', str(out)], capture_output=True, text=True).stdout.split()
+            for frame in out.glob('scenes/**/*.ppm'):  # what render_test leaves on the target
+                frame.unlink()
+            code = subprocess.run(suite + ['analyze', str(out)], stdout=subprocess.DEVNULL).returncode
+            summary = json.loads((out / 'summary.json').read_text())
+            if a == 'plain':
+                self.assertEqual(differing, [])
+                self.assertEqual(code, 0)
+                self.assertEqual({s['verdict'] for s in summary['scenes']}, {'identical'})
+            else:
+                self.assertEqual(differing, ['outset-trees-swing', 'outset-trees-still'])
+                self.assertEqual({s['why'] for s in summary['scenes']}, {'frames differ but were not copied here'})
+
     def test_a_missing_state_stops_before_running(self):
         (self.dir / 'states').mkdir()
         (self.dir / 'card').write_bytes(b'card')

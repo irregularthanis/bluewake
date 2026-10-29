@@ -64,6 +64,9 @@ Deck (or any Linux machine) over SSH, or here:
 render_test [user@host] BUILD_A BUILD_B [--suite quick|full] [--repeat 3] [--format terminal|github]
 ```
 
+The target only renders: it needs `python3` and nothing else. The analysis runs on the machine you start
+`render_test` from, which needs numpy and Pillow (`pip install --user numpy pillow`).
+
 A build is an AppImage, or a folder holding `BlueWake-x86_64.AppImage`. B is the reference: there are no stored
 reference images. Every scene starts from a save state, so A and B make the same frames unless the rendering
 changed. Two things run, both through the scripts above:
@@ -82,7 +85,7 @@ changed. Two things run, both through the scripts above:
 The quick suite runs the scenes marked `quick` and the top 3 rooms.
 `--suite full` runs every scene and the top 10 rooms. The exit code is 0 when everything passed, 1
 when a scene changed or failed or a room was flagged, and 2 when the setup is wrong (a missing state, card,
-display, or numpy/Pillow).
+display, or numpy/Pillow here).
 
 **Examples:**
 
@@ -94,14 +97,16 @@ scripts/render_test deck@10.10.20.168 build/artifacts/gpr/latest build/artifacts
 # The same here, with the table ready to paste into a PR
 scripts/render_test build/artifacts/gpr/latest build/artifacts/main/latest --format github
 
-# Every scene and the top 10 rooms, five runs a room, with the worst image of each scene copied back
-scripts/render_test deck@10.10.20.168 new.AppImage main.AppImage --suite full --repeat 5 --fetch
+# Every scene and the top 10 rooms, five runs a room
+scripts/render_test deck@10.10.20.168 new.AppImage main.AppImage --suite full --repeat 5
 
 # A Deck in Desktop Mode without gamescope's headless backend: use the running session
 scripts/render_test deck@10.10.20.168 new.AppImage main.AppImage --display desktop
 
-# Only the scenes, or only the rooms, by hand: render_suite.py is what render_test runs on the target
-python3 scripts/render_suite.py run new.AppImage main.AppImage out/rt --card my.card --states states/
+# The halves by hand: collect renders (on the target), analyze judges (where numpy is); run does both
+python3 scripts/render_suite.py collect new.AppImage main.AppImage out/rt --card my.card --states states/
+python3 scripts/render_suite.py differing out/rt      # the scenes whose frames need copying to analyze them
+python3 scripts/render_suite.py analyze out/rt
 python3 scripts/render_suite.py report out/rt/summary.json --format github
 ```
 
@@ -120,17 +125,24 @@ Staging builds and harness...
 == scene 1/2: outset-trees-swing
 A: exit 1 after 31 s, 0 frames, 160 dumped images
 B: exit 1 after 30 s, 0 frames, 160 dumped images
-changed: 160 images, 41 differ, max diff 96, min PSNR 31.2, flicker A 0 B 212 (52-between PSNR 31.2 < 40.0)
+== scene 2/2: outset-trees-still
 ...
 == rooms: the costliest 3, 3 run(s) each build
 ...
+== wrote /home/deck/bluewake-render/runs/gpr-vs-main-20261028T214500Z/out/collected.json
+Copying back logs, timings and frame hashes...
+Copying back outset-trees-swing frames (A and B differ)...
+
+Analysing here...
+changed: 160 images, 41 differ, max diff 96, min PSNR 31.2, flicker A 0 B 212 (52-between PSNR 31.2 < 40.0)
+wrote build/render-tests/gpr-vs-main-20261028T214500Z/out/scenes/outset-trees-swing/worst.png
 
 Rendered tests: A gpr against B main
 steamdeck, AMD Custom GPU 0405 (RADV VANGOGH), display headless 1280x800, quick suite, 3 run(s) a room
 
 scene               verdict    images  max diff  min PSNR  flicker A/B  why
 outset-trees-swing  CHANGED    160     96        31.2      0/212        52-between PSNR 31.2 < 40.0
-outset-trees-still  IDENTICAL  10      0         -         0/0
+outset-trees-still  IDENTICAL  10      0         -         =/=
 
 room        name            GPU ms A  GPU ms B  busy% A  busy% B  GPU Δ   flag
 SubD51:1:0  SubD51          11.42     11.51     78.5     79.1     -0.8%   ok
@@ -139,18 +151,21 @@ WarpD:0:0   Warp maze       12.90     11.61     81.0     80.4     +11.1%  gpu_ms
 
 FAIL
 
-Summary: /home/me/bluewake/build/render-tests/gpr-vs-main-20261028T214500Z/summary.json
+Summary: /home/me/bluewake/build/render-tests/gpr-vs-main-20261028T214500Z/out/summary.json
 ```
 
-Here the swing scene changed because A fixed B's flicker (0 blink pixels against 212). `--fetch` copies each
-scene's `worst.png` (A, B and their difference, x8) back to look at. A **changed** verdict means "look at it", not
+Here the swing scene changed because A fixed B's flicker (0 blink pixels against 212). Its `worst.png` shows A, B
+and their difference (x8) side by side. The still scene was identical by its frame hashes alone, so its frames
+were not copied (`=/=`: no flicker check needed, A is B). A **changed** verdict means "look at it", not
 "wrong". The Warp maze is 11% slower on the GPU, well outside the spread between runs. With `--format github` the
 same tables come out as Markdown.
 
-**What stays where.** Builds, the card, save states and every frame stay on the target, in
-`~/bluewake-render/runs/<A>-vs-<B>-<time>/` (the run folder, `out/scenes/<scene>/A|B`, `out/rooms/`, `suite.log`).
-Only `summary.json` (and with `--fetch` the `worst.png` sheets) comes back, to `build/render-tests/`. Nothing is
-uploaded anywhere else, so none of this runs in CI. CI runs `tests/test_render_suite.py`, which drives the same
+**What stays where.** Builds, the card and save states stay on the target, and the runs are in
+`~/bluewake-render/runs/<A>-vs-<B>-<time>/` there (`out/scenes/<scene>/A|B`, `out/rooms/`, `suite.log`). Copied back
+to `build/render-tests/<A>-vs-<B>-<time>/out/` here: logs, timings, `results.json`, each frame's SHA-256
+(`hashes.json`), and the frames of the scenes whose hashes differ between A and B, which the analysis needs. A run
+of two identical builds copies no frames. Analysed here: `summary.json`, `check.json` and `worst.png` per scene.
+Nothing is uploaded anywhere else, so none of this runs in CI. CI runs `tests/test_render_suite.py`, which drives the same
 scripts end to end with a fake app (`tests/render_fixtures/fake_bluewake.py`) that writes frames and log lines.
 
 **One-time setup on the target:**
@@ -162,7 +177,7 @@ scripts end to end with a fake app (`tests/render_fixtures/fake_bluewake.py`) th
 - a display. `--display auto` (the default) runs the game under `gamescope --backend headless` when gamescope is
   there (SteamOS has it), at 1280x800 on a Deck (`--size` for another). Without it, the game uses the running
   desktop session (Desktop Mode on a Deck, `DISPLAY=:0`).
-- numpy and Pillow. If `python3` lacks them, they are installed once into `~/bluewake-render/.venv`.
+- `python3` and `tar` (SteamOS has both). numpy and Pillow are needed only on the machine running `render_test`.
 
 **Adding a scene.** Make a state (F5, or `BLUEWAKE_SAVE_STATE=FILE@RETRACE`), put it in the states folder, and add
 an entry to `render_scenes.json`:
