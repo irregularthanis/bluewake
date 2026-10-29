@@ -32,13 +32,13 @@ Options:
                             uses the running session (Desktop Mode on a Deck)
                             (default: auto, gamescope if there is one)
   --size WxH                headless size (default 1280x800 on a Deck)
+  --ssh-key PATH            SSH private key for user@host
   --fetch                   copy each scene's worst.png (A, B, difference)
                             back from a remote run
   -h, --help                this help
 
-Environment:
-  BLUEWAKE_DECK_PASSWORD    use sshpass with this password; otherwise SSH
-                            keys or one prompt. One connection is reused.
+Remote runs use your SSH keys and ~/.ssh/config, or ask for the password
+once; one connection is reused for the whole run. No environment variables.
 
 Exit: 0 everything passed, 1 a scene failed or changed or a room was flagged,
 2 a usage or setup error. Builds, card, states and frames stay on the target;
@@ -96,6 +96,7 @@ run_parent=
 display=auto
 size=
 fetch=0
+ssh_key=
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --suite) suite=${2:?--suite needs quick or full}; shift ;;
@@ -106,6 +107,7 @@ while [[ $# -gt 0 ]]; do
         --run-directory) run_parent=${2:?--run-directory needs a path}; shift ;;
         --display) display=${2:?--display needs auto, headless or desktop}; shift ;;
         --size) size=${2:?--size needs WxH}; shift ;;
+        --ssh-key) ssh_key=${2:?--ssh-key needs a path}; shift ;;
         --fetch) fetch=1 ;;
         -h|--help) usage; exit 0 ;;
         *) die "unknown argument: $1" ;;
@@ -196,21 +198,19 @@ else
     control_directory=$(mktemp -d "${TMPDIR:-/tmp}/render-test-ssh.XXXXXX")
     control_path="$control_directory/control"
     cleanup() {
-        ssh -F /dev/null -o BatchMode=yes -o ControlPath="$control_path" -O exit "$target" >/dev/null 2>&1 || true
+        ssh -o ControlPath="$control_path" -O exit "$target" >/dev/null 2>&1 || true
         rm -rf "$control_directory"
     }
     trap cleanup EXIT
     trap 'exit 130' HUP INT TERM
-    ssh_options=(-F /dev/null -o StrictHostKeyChecking=no -o ControlMaster=auto -o ControlPersist=60
-                 -o ControlPath="$control_path")
-    if [[ -n ${BLUEWAKE_DECK_PASSWORD:-} ]]; then
-        command -v sshpass >/dev/null || die "missing local dependency: sshpass"
-        ssh_command=(sshpass -p "$BLUEWAKE_DECK_PASSWORD" ssh "${ssh_options[@]}")
-        scp_command=(sshpass -p "$BLUEWAKE_DECK_PASSWORD" scp "${ssh_options[@]}")
-    else
-        ssh_command=(ssh "${ssh_options[@]}")
-        scp_command=(scp "${ssh_options[@]}")
-    fi
+    ssh_options=(-o ControlPath="$control_path" -o ServerAliveInterval=30)
+    [[ -n "$ssh_key" ]] && ssh_options+=(-i "$ssh_key" -o IdentitiesOnly=yes)
+    # One connection for the whole run: SSH keys (or ~/.ssh/config), else
+    # one password prompt here; every later ssh and scp reuses it.
+    ssh "${ssh_options[@]}" -o ControlMaster=yes -o ControlPersist=yes -N -f "$target" ||
+        die "could not connect to $target"
+    ssh_command=(ssh "${ssh_options[@]}" -o ControlMaster=no)
+    scp_command=(scp "${ssh_options[@]}" -o ControlMaster=no)
     card=${card:-'~/.local/share/BlueWake/GZLE01.card'}
     states=${states:-'~/bluewake-render/states'}
     run_parent=${run_parent:-'~/bluewake-render/runs'}

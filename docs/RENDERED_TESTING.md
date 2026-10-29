@@ -87,8 +87,8 @@ display, or numpy/Pillow).
 **Examples:**
 
 ```
-# Over SSH on the Deck: a branch build against main (folders from build_script, or AppImages)
-export BLUEWAKE_DECK_PASSWORD='temporary password'      # or SSH keys
+# Over SSH on the Deck: a branch build against main (folders from build_script, or AppImages).
+# SSH keys or ~/.ssh/config are used, else it asks for the password once (--ssh-key for a given key).
 scripts/render_test deck@10.10.20.168 build/artifacts/gpr/latest build/artifacts/main/latest
 
 # The same here, with the table ready to paste into a PR
