@@ -372,6 +372,17 @@ A neutral or regressing fixed-view result stops full qualification. A lower
 worker percentage alone is insufficient unless game speed or frame progress
 improves.
 
+## Implementation order
+
+| Milestone | Depends | Can run with | Deliverable / integration gate |
+| --- | --- | --- | --- |
+| M0 | — | — | Frozen `v0.9.0` control, receipts and A/A noise |
+| M1 | M0 | M2 | Direct-call guard measurement and one candidate (rejected) |
+| M2 | M0 | M1 | FP and gather-pipe attribution; selected gather alias cache |
+| M3 | M1, M2 | — | One ranked candidate with a frozen contract |
+| M4 | M3 | — | Implemented candidate with a control option and tests (BlueWake #495) |
+| M5 | M4 | — | Deck qualification; retain or reject |
+
 ## Current decisions and gaps
 
 - Direct-call rewriting already exists; M1 measures its remaining guard cost.

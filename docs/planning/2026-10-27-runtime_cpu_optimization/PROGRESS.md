@@ -1,6 +1,6 @@
 # PROGRESS — Steam Deck runtime CPU optimization
 
-Status: M0 complete; M1 rejected; M2 complete; M3 ready
+Status: M0 complete; M1 rejected; M2–M4 complete; M5 partly done. The generation-keyed gather alias cache shipped as BlueWake [#495](https://github.com/chrissotraidis/bluewake/pull/495), on by default (Linux and Windows); its fixed-view rendered FPS A/B and player traversal remain open
 
 [Product brief](PRD.md) · [Technical plan](TECH_PLAN.md)
 
@@ -35,21 +35,21 @@ Parallel with M1; owns helper-operation attribution only.
 
 ### M3: Select the implementation candidate (depends: M1, M2)
 
-- [ ] M3-T01: Rank D1–D3 by exclusive cost, removable work, safety, and expected player-facing gain.
-- [ ] M3-T02: If none qualifies, price a complete GroundCross-family replacement against its measured ceiling and PR #436.
-- [ ] M3-T03: Freeze one candidate contract and its focused correctness/activation tests.
+- [x] M3-T01: Rank D1–D3 by exclusive cost, removable work, safety, and expected player-facing gain.
+- [x] M3-T02: If none qualifies, price a complete GroundCross-family replacement against its measured ceiling and PR #436. (Not needed: the gather alias cache qualified. GroundCross is taken up in BlueWake [#501](https://github.com/chrissotraidis/bluewake/pull/501).)
+- [x] M3-T03: Freeze one candidate contract and its focused correctness/activation tests.
 
 ### M4: Implement the strongest candidate (depends: M3)
 
-- [ ] M4-T01: Rank the three tracks and select the strongest safety-bounded candidate.
-- [ ] M4-T02: Implement one default-off isolated change with a fallback and focused contract tests.
-- [ ] M4-T03: Build source-matched control and candidate artifacts and record hashes.
+- [x] M4-T01: Rank the three tracks and select the strongest safety-bounded candidate.
+- [x] M4-T02: Implement one default-off isolated change with a fallback and focused contract tests. (Implemented default-off with `--gather-alias-cache`; after qualification enabled by default, keeping `--no-gather-alias-cache` as the control.)
+- [x] M4-T03: Build source-matched control and candidate artifacts and record hashes.
 
 ### M5: Qualify or reject (depends: M4)
 
-- [ ] M5-T01: Run interleaved stable/slow/worst fixed-view A/B against measured noise.
-- [ ] M5-T02: If positive, run the full headless/rendered scenes, checkpoints, and player-facing traversal.
-- [ ] M5-T03: Publish aggregate evidence and retain or reject the candidate.
+- [ ] M5-T01: Run interleaved stable/slow/worst fixed-view A/B against measured noise. (Open: only matched `perf stat` view samples exist, under "M2 rendered candidate"; no fixed-view FPS A/B.)
+- [ ] M5-T02: If positive, run the full headless/rendered scenes, checkpoints, and player-facing traversal. (Partly done: the headless five-scene tour with checkpoints, under "M2 candidate qualification"; rendered scenes and traversal open.)
+- [x] M5-T03: Publish aggregate evidence and retain or reject the candidate.
 
 ## Evidence ledger
 
@@ -69,6 +69,18 @@ Parallel with M1; owns helper-operation attribution only.
 | M2 alias rejection census | Private Deck log retained locally | Existing `BLUEWAKE_TRACE_ALIAS_COST=1`; stable/slow/worst views; clean exit | Diagnostic AppImage `b188e84d…`; no FPS claim; temporary launcher variable and redirection removed afterward | Primary runtime copy: 1.384B resolver calls, 97.7% bounds-pruned; 31.49M remaining calls and 31.49M hits. Select generation-keyed FIFO-window overlap cache using RecompCore #45; preserve resolver fallback. |
 | M2 rendered candidate | Control [`73ef48e`](https://github.com/chrissotraidis/bluewake/commit/73ef48e1fe3d3ef128ff8a5ee67a2705bc74d4a3), AppImage `77b734f8…`; candidate [`8d8587b`](https://github.com/irregularthanis/bluewake/commit/8d8587b37c360ee91f6947c40118e646a9faf4d8), AppImage `5723637a…` | Matched 20 s `perf stat` samples at stable, slow and worst rendered views | Steam Deck Game Mode; both builds use PR #480 foundation, Clang 18, `x86-64-v3` and the same optimization set | Candidate cycles: stable -1.34%, slow +0.27%, worst -0.94%; instructions: -1.76%, -0.26%, -4.47%. Promising directional result, qualified by the full tour. |
 | M2 candidate qualification | Private Deck evidence `8d8587b37c36-vs-73ef48e1fe3d-20261027T234341Z` | Ten runs/artifact; five-pair interleaved ABBA headless tour; one shared fixed state | 5/5 scenes and 31/31 identical checkpoints in every run | Candidate improved every scene by 2.43–3.37%; per-run geometric-mean median +2.84%. Advance generation-keyed gather alias cache to M3. |
+| M3-T01 | This ledger's M2 rows | Rank by exclusive cost and removable work: validation 1.01 % with 97.7 % of resolver calls bounds-pruned and the rest hits; packing, drain and FP below a standalone ceiling | Same evidence | Selected: generation-keyed FIFO-window alias overlap cache |
+| M4-T01 | Same as M3-T01 | Strongest safety-bounded candidate of the three tracks (M1 rejected; FP below ceiling) | Same evidence | Gather alias cache |
+| M3-T02 | BlueWake [#501](https://github.com/chrissotraidis/bluewake/pull/501) | Not required once a candidate qualified | — | GroundCross's cost was traced to guest alias resolution under the collision walk; addressed by RecompCore #48 in #501 |
+| M3-T03 | [`GATHER_ALIAS_CACHE.md`](https://github.com/irregularthanis/bluewake/blob/perf/gather-alias-cache/docs/planning/2026-10-27-runtime_cpu_optimization/GATHER_ALIAS_CACHE.md) on #495 (`ff2e84f`); tests `348d7e6`, `464c2e1` | Contract: cache only whether either FIFO window overlaps an alias, keyed by RecompCore #45's generation; `bluewake_gather_memory_cache_test` | Disc-free CTest | Contract frozen; tests in Linux CI |
+| M4-T02 | BlueWake #495: `c52b477` (Linux default), `2b9adf1` (Windows default) | `--gather-alias-cache` / `--no-gather-alias-cache` builder options | Linux and Windows builders | Implemented; on by default with an explicit control |
+| M4-T03 | This ledger's "M2 rendered candidate" row | Control AppImage `77b734f8…`, candidate `5723637a…` | Clang 18, `x86-64-v3`, same options | Source-matched artifacts recorded |
+| M5-T03 | BlueWake [#495](https://github.com/chrissotraidis/bluewake/pull/495); Windows test fixture fix `325a5e6` | PR with technical basis and Deck evidence; CI | Upstream Linux and Windows host CI | Retained: shipped on by default; CI audit and Windows host pass after `325a5e6` |
+| M1-T01 | See the "M1-T01/T02" row | Entry and return readiness measured separately | Steam Deck Game Mode | 99.40 % / 99.79 % allowed |
+| M1-T02 | See the "M1-T01/T02" row | Mutable readiness inputs recorded | Same | Budget and address state produced real rejections; checks retained |
+| M2-T01 | See the "M2-T01/T02/T03" row | FP attribution | Steam Deck, worst Outset view | FP 0.44 % |
+| M2-T02 | See the "M2-T01/T02/T03" row | Gather-pipe stage split | Same | Validation 1.01 %, packing 0.14 %, drain 0.09 % |
+| M2-T03 | See the "M2-T01/T02/T03" and "M2 alias rejection census" rows | Candidate selection | Same | Alias-overlap fast answer selected; packing, drain and FP rejected |
 
 Screening evidence: a private 120-second headless diagnostic recorded 861
 samples in `func_802456E0` (7.23% process share). Generated-source and GZLE01
