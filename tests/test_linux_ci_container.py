@@ -76,6 +76,43 @@ class GatherAliasCachePolicyTest(unittest.TestCase):
         self.assertIn("--no-gather-alias-cache", result.stdout)
 
 
+class CrossPlatformPerformanceDefaultsTest(unittest.TestCase):
+    """Keep the qualified module and runtime optimizations on by default everywhere they are supported."""
+
+    MODULE_DEFAULTS = {
+        "fixed_cpu", "fixed_mem1", "inline_fp", "gather_pipe", "gather_alias_cache", "inline_gpr",
+        "prepared_blocks", "direct_calls", "native_j3d", "native_vec", "native_math", "native_skin",
+        "native_game_math", "lean_blocks", "lean_memory", "lean_deadlines", "behaviour_timing",
+    }
+
+    def test_linux_and_windows_share_the_complete_default_module_recipe(self):
+        spec = importlib.util.spec_from_file_location("bluewake_windows_build",
+                                                      BUILD.ROOT / "scripts/windows/build.py")
+        windows = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(windows)
+        self.assertTrue(self.MODULE_DEFAULTS.issubset(BUILD.LINUX_DEFAULT_OPTIMIZATIONS))
+        self.assertTrue(self.MODULE_DEFAULTS.issubset(windows.WINDOWS_DEFAULT_OPTIMIZATIONS))
+
+    def test_android_and_apple_select_the_shared_recipe_by_default(self):
+        android = (BUILD.ROOT / "scripts/android/build.py").read_text()
+        apple = (BUILD.ROOT / "scripts/builder/build.sh").read_text()
+        self.assertIn("for name in wb.WINDOWS_DEFAULT_OPTIMIZATIONS", android)
+        self.assertIn("module_optimizations=combined-v1 lean_arg=--lean lean_memory=1 lean_deadlines=1 "
+                      "behaviour_timing=1", apple)
+
+    def test_gather_batching_defaults_on_but_visual_tradeoff_stays_opt_in(self):
+        bridge = (BUILD.ROOT / "runtime/host/src/gather_pipe_bridge.h").read_text()
+        settings = (BUILD.ROOT / "runtime/host/src/settings_table.h").read_text()
+        android = (BUILD.ROOT / "android/java/dev/bluewake/android/Settings.java").read_text()
+        apple = (BUILD.ROOT / "apple/ios/src/ios_entry.m").read_text()
+        self.assertIn('return "1";', bridge)
+        self.assertIn('.key = "BLUEWAKE_GATHER_PIPE_BATCH", .kind = Kind::Bool, .on = Os::All', settings)
+        self.assertIn('bool(GX_BATCH, true)', android)
+        self.assertIn('@"BLUEWAKE_GATHER_PIPE_BATCH"', apple)
+        # Efficient soft effects deliberately trades some effect resolution for speed; it remains player opt-in.
+        self.assertNotIn('.key = "DOL_AURORA_EFFICIENT_EFFECTS", .kind = Kind::Bool, .on = Os::All', settings)
+
+
 class GatherPipeProfilePolicyTest(unittest.TestCase):
     """Keep GX attribution explicit and out of normal optimized builds."""
 
