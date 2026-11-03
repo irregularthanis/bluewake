@@ -303,6 +303,22 @@ inline constexpr Setting kSettings[] = {
     {.key = "BLUEWAKE_DSP_MODE", .old_windows = "lle_audio", .kind = Kind::Choice, .fallback = "hle",
      .tab = Tab::Config, .control = Control::Custom, .group = "Sound", .next_launch = Os::All,
      .fill = Os::All},
+    // Performance: the options that trade nothing visible, or very little, for
+    // speed, together. Efficient soft effects first (off by default, opt-in).
+    // RecompCore #49's soft-effects buffer (aurora_set_efficient_effects), applied live.
+    {.key = "DOL_AURORA_EFFICIENT_EFFECTS", .kind = Kind::Bool, .label = "Efficient soft effects",
+     .tab = Tab::Config, .control = Control::Switch,
+     .note = "Experimental. Draws soft see-through effects, such as haze, smoke, fog and clouds, at lower resolution and blends them in once. Much faster at high render resolutions, slightly softer effects. Off by default; measured on a Steam Deck, not yet on Windows or a Mac.",
+     .group = "Performance"},
+    // The game's GX commands handed to the renderer a run of bytes at a time
+    // rather than one host call per value (gather_pipe_bridge.h). On everywhere:
+    // measured on Linux (Steam Deck, +1.7% in Outset, #531); Mac builds with the
+    // combined optimizations already batched; Windows pending its measurement.
+    {.key = "BLUEWAKE_GATHER_PIPE_BATCH", .kind = Kind::Bool, .on = Os::All,
+     .label = "Batch the game's graphics commands", .tab = Tab::Config, .control = Control::Switch,
+     .note = "Hands the game's graphics commands to the renderer in runs instead of one at a time. "
+             "Takes effect when BlueWake starts again.",
+     .next_launch = Os::All},
     // The game waits while the menu is open, or runs on with its input kept from
     // it. Off on Windows until a paused game, and the picture behind the menu,
     // are checked there.

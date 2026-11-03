@@ -32,7 +32,9 @@ static const char* const kFileOrder[] = {
     "BLUEWAKE_STICK_CAMERA_SPEED", "BLUEWAKE_STICK_AIM", "BLUEWAKE_STICK_AIM_SPEED", "BLUEWAKE_STICK_ZOOM", "BLUEWAKE_STICK_ZOOM_SPEED",
     "BLUEWAKE_STICK_CAMERA_INVERT_X", "BLUEWAKE_STICK_CAMERA_INVERT_Y", "BLUEWAKE_AIM_INVERT_Y",
     "BLUEWAKE_GYRO_AIM", "BLUEWAKE_GYRO_AIM_SPEED", "BLUEWAKE_HAPTICS", "BLUEWAKE_HAPTICS_STRENGTH",
-    "BLUEWAKE_HAPTICS_TRIGGERS", "BLUEWAKE_DSP_MODE", "BLUEWAKE_MENU_PAUSES", "BLUEWAKE_MENU_TEXT_SIZE",
+    "BLUEWAKE_HAPTICS_TRIGGERS", "BLUEWAKE_DSP_MODE", "DOL_AURORA_EFFICIENT_EFFECTS", "BLUEWAKE_GATHER_PIPE_BATCH",
+    "BLUEWAKE_MENU_PAUSES",
+    "BLUEWAKE_MENU_TEXT_SIZE",
     "BLUEWAKE_MENU_CONTRAST", "BLUEWAKE_MENU_PLACE", "BLUEWAKE_MENU_SIZE", "BLUEWAKE_TEXTURE_PACK_FOLDER",
     "DOL_AURORA_WINDOW", "BLUEWAKE_WINDOW_POSITION",
 };
@@ -114,6 +116,13 @@ int main() {
     const Setting* pacing = find("DOL_AURORA_FRAME_INTERP_PACING");
     assert(pacing != nullptr && pacing->kind == Kind::Choice && pacing->control == Control::Chooser);
     assert(std::strcmp(fallback_for(*pacing), "") == 0 && next_launch_on(*pacing));
+    const Setting* efficient_effects = find("DOL_AURORA_EFFICIENT_EFFECTS");
+    // The Performance section (Config): efficient soft effects heads it, GX batching follows.
+    assert(efficient_effects != nullptr && efficient_effects->tab == Tab::Config);
+    assert(efficient_effects->group != nullptr && std::strcmp(efficient_effects->group, "Performance") == 0);
+    const Setting* batch = find("BLUEWAKE_GATHER_PIPE_BATCH");
+    assert(batch != nullptr && batch->tab == Tab::Config && batch->group == nullptr && batch == efficient_effects + 1);
+    assert(efficient_effects->experimental == nullptr);
     // A switch left empty (KEY= in an older settings file) shows its default,
     // as the game's readers take it: the stick camera is on there, not off.
     const bool stick = default_on(*find("BLUEWAKE_STICK_CAMERA"));
