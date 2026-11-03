@@ -530,20 +530,34 @@ int main(void) {{
         compiled with clang at the same CPU level as the game module (the FIFO
         worker's matrix work for Smooth Motion needs AVX2 and FMA to keep up).
 
-        --appimage builds the app as Linux CI does: LLVM libc++, which the AppImage carries, and Dawn
-        built from source with it. The prebuilt Dawn package is compiled against libstdc++, so an app
-        linked with it needs the player's own libstdc++ (GLIBCXX_*), which check_appimage_abi.py
-        rejects. It has its own build folder, so a folder build keeps the faster prebuilt Dawn."""
+        --appimage defaults to Linux CI's LLVM libc++ and source-built Dawn.
+        Measurement builds can select static libstdc++ independently and can
+        select packaged Dawn for #472's shipping-recipe check. Defaults and
+        ordinary folder builds remain unchanged."""
         appimage = getattr(self.args, "appimage", False)
-        self.app_build = build or self.out / ("app-appimage" if appimage else "app")
+        stdlib = getattr(self.args, "appimage_stdlib", None) or "libc++"
+        dawn = getattr(self.args, "appimage_dawn_provider", None) or "vendor"
+        app_dir = "app-appimage"
+        if appimage and (stdlib, dawn) != ("libc++", "vendor"):
+            app_dir += f"-{stdlib.replace('+', 'x')}-{dawn}"
+        self.app_build = build or self.out / (app_dir if appimage else "app")
         cxx_flags = f"-march={self.args.march} -g"
         runtime = ["-DAURORA_DAWN_PROVIDER=package", "-DAURORA_DAWN_LINKAGE=static"]
         if appimage:
-            cxx_flags += " -stdlib=libc++"
-            runtime = ["-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++", "-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++",
-                       "-DCMAKE_CXX_STANDARD_LIBRARIES=", "-DCMAKE_DISABLE_FIND_PACKAGE_SQLite3=TRUE",
-                       "-DCMAKE_DISABLE_FIND_PACKAGE_absl=TRUE", "-DDAWN_USE_GLFW=OFF",
-                       "-DAURORA_DAWN_PROVIDER=vendor", "-DAURORA_DAWN_LINKAGE=static"]
+            runtime = []
+            if stdlib == "libc++":
+                cxx_flags += " -stdlib=libc++"
+                runtime += ["-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++",
+                            "-DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++",
+                            "-DCMAKE_CXX_STANDARD_LIBRARIES="]
+            else:
+                runtime.append("-DCMAKE_EXE_LINKER_FLAGS=-static-libstdc++")
+            if dawn == "vendor":
+                runtime += ["-DCMAKE_DISABLE_FIND_PACKAGE_SQLite3=TRUE",
+                            "-DCMAKE_DISABLE_FIND_PACKAGE_absl=TRUE", "-DDAWN_USE_GLFW=OFF",
+                            "-DAURORA_DAWN_PROVIDER=vendor", "-DAURORA_DAWN_LINKAGE=static"]
+            else:
+                runtime += ["-DAURORA_DAWN_PROVIDER=package", "-DAURORA_DAWN_LINKAGE=static"]
         self.run("app-configure", [
             "cmake", "-S", ROOT / "linux", "-B", self.app_build, "-G", "Ninja",
             "-DCMAKE_C_COMPILER=clang", "-DCMAKE_CXX_COMPILER=clang++",
@@ -1287,6 +1301,10 @@ int main(void) {{
             "local_training": self.profile is not None,
             "composite_profile_sha256": sha256_file(self.profile) if self.profile else "",
             "compiler": self.clang_version,
+            "appimage_stdlib": ((getattr(self.args, "appimage_stdlib", None) or "libc++")
+                                if getattr(self.args, "appimage", False) else ""),
+            "appimage_dawn_provider": ((getattr(self.args, "appimage_dawn_provider", None) or "vendor")
+                                       if getattr(self.args, "appimage", False) else ""),
             "module_sha256": sha256_file(app / MODULE),
             "built": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
@@ -1567,11 +1585,19 @@ def main():
                              "folder beside the app (a rebuild leaves user/ alone)")
     parser.add_argument("--appimage", action="store_true",
                         help="after the normal app-folder build, package it as an AppImage")
+    parser.add_argument("--appimage-stdlib", choices=("libc++", "static-libstdc++"),
+                        help="AppImage host C++ runtime (default: libc++; measurement option)")
+    parser.add_argument("--appimage-dawn-provider", choices=("vendor", "package"),
+                        help="AppImage Dawn provider (default: vendor; measurement option)")
     args = parser.parse_args()
     if args.module_sources and (args.source_only or args.host_only or args.check_only):
         parser.error("--module-sources cannot be combined with --source-only, --host-only or --check-only")
     if args.clang22 and not args.ci_container:
         parser.error("--clang22 requires --ci-container")
+    if (args.appimage_stdlib or args.appimage_dawn_provider) and not args.appimage:
+        parser.error("--appimage-stdlib and --appimage-dawn-provider require --appimage")
+    if args.appimage_stdlib == "libc++" and args.appimage_dawn_provider == "package":
+        parser.error("packaged Dawn uses libstdc++; libc++ requires --appimage-dawn-provider=vendor")
     if args.ci_container and os.environ.get(CI_CONTAINER_ENV) != "1":
         try:
             sys.exit(run_in_ci_container(args))

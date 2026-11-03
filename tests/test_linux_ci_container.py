@@ -287,9 +287,10 @@ class AppImageRuntimeTest(unittest.TestCase):
     player's libstdc++ and check_appimage_abi.py rejects the AppImage
     (GLIBCXX_3.4.32 on a container build, reported on #371)."""
 
-    def configure(self, appimage):
+    def configure(self, appimage, stdlib=None, dawn=None):
         builder = BUILD.Builder(argparse.Namespace(out=Path("build/linux"), appimage=appimage,
-                                                   march="x86-64-v3"))
+                                                   march="x86-64-v3", appimage_stdlib=stdlib,
+                                                   appimage_dawn_provider=dawn))
         seen = []
         builder.run = lambda name, argv, **kw: seen.append([str(a) for a in argv])
         builder.configure_app()
@@ -314,6 +315,44 @@ class AppImageRuntimeTest(unittest.TestCase):
         self.assertIn("-DAURORA_DAWN_PROVIDER=package", argv)
         self.assertFalse(any("-stdlib=libc++" in a for a in argv))
         self.assertEqual(builder.app_build, Path("build/linux/app"))
+
+    def test_factor_grid_can_use_static_libstdcxx_with_the_same_vendor_dawn(self):
+        builder, argv = self.configure(True, "static-libstdc++", "vendor")
+        self.assertIn("-DCMAKE_EXE_LINKER_FLAGS=-static-libstdc++", argv)
+        self.assertIn("-DAURORA_DAWN_PROVIDER=vendor", argv)
+        self.assertFalse(any("-stdlib=libc++" in a for a in argv))
+        self.assertEqual(builder.app_build,
+                         Path("build/linux/app-appimage-static-libstdcxx-vendor"))
+
+    def test_shipping_check_can_use_static_libstdcxx_with_packaged_dawn(self):
+        builder, argv = self.configure(True, "static-libstdc++", "package")
+        self.assertIn("-DCMAKE_EXE_LINKER_FLAGS=-static-libstdc++", argv)
+        self.assertIn("-DAURORA_DAWN_PROVIDER=package", argv)
+        self.assertNotIn("-DAURORA_DAWN_PROVIDER=vendor", argv)
+        self.assertEqual(builder.app_build,
+                         Path("build/linux/app-appimage-static-libstdcxx-package"))
+
+    def test_recipe_selectors_require_appimage(self):
+        result = subprocess.run(
+            [sys.executable, SCRIPT, "/nonexistent/disc.iso",
+             "--appimage-stdlib=static-libstdc++"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("require --appimage", result.stderr)
+
+    def test_libcxx_rejects_the_libstdcxx_dawn_package(self):
+        result = subprocess.run(
+            [sys.executable, SCRIPT, "/nonexistent/disc.iso", "--appimage",
+             "--appimage-stdlib=libc++", "--appimage-dawn-provider=package"],
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("packaged Dawn uses libstdc++", result.stderr)
+
+    def test_provenance_records_both_recipe_dimensions(self):
+        source = SCRIPT.read_text()
+        package = source[source.index("    def package(self, module):"):
+                         source.index("    def package_appimage(self):")]
+        self.assertIn('"appimage_stdlib"', package)
+        self.assertIn('"appimage_dawn_provider"', package)
 
 
 if __name__ == "__main__":
