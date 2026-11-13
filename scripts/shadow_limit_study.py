@@ -42,10 +42,12 @@ ABORTING = (1 << 2) | (1 << 3) | (1 << 5) | (1 << 6)  # a shadow could not run t
 
 class Region:
     __slots__ = ("tag", "proc", "pass_", "name", "start", "end", "flags", "alias", "hardware",
-                 "read_lines", "write_words")
+                 "read_lines", "write_words", "wlines", "kind", "part", "marker")
 
-    def __init__(self, tag, proc, pass_, name, start, end, flags, alias, hardware, reads, writes):
+    def __init__(self, tag, proc, pass_, name, start, end, flags, alias, hardware, reads, writes,
+                 kind="X", part=0, marker=0x80040198):
         self.tag, self.proc, self.pass_, self.name = tag, proc, pass_, name
+        self.kind, self.part, self.marker = kind, part, marker
         self.start, self.end, self.flags = start, end, flags
         self.alias, self.hardware = alias, hardware
         self.read_lines = reads
@@ -60,6 +62,7 @@ def read_trace(path):
     data = Path(path).read_bytes()
     if data[:4] != b"BWST":
         sys.exit(f"{path}: not a shadow trace")
+    version = data[4]
     at = 8
     events, regions = [], []
     n = len(data)
@@ -71,9 +74,16 @@ def read_trace(path):
             at += 12
             events.append((cycle, kind.decode(), value))
         elif kind == b"R":
-            tag, proc, pass_, name, _pad, start, end, flags, alias, hw, nr, nw = struct.unpack_from(
-                "<IIIHHQQIIIII", data, at)
-            at += 4 * 3 + 2 + 2 + 8 * 2 + 4 * 5
+            if version >= 2:
+                (tag, proc, pass_, name, rkind, part, marker, start, end, flags, alias, hw, nr,
+                 nw) = struct.unpack_from("<IIIHBBIQQIIIII", data, at)
+                at += 4 * 3 + 2 + 1 + 1 + 4 + 8 * 2 + 4 * 5
+                rkind = chr(rkind)
+            else:
+                tag, proc, pass_, name, _pad, start, end, flags, alias, hw, nr, nw = struct.unpack_from(
+                    "<IIIHHQQIIIII", data, at)
+                at += 4 * 3 + 2 + 2 + 8 * 2 + 4 * 5
+                rkind, part, marker = "X", 0, 0x80040198
             reads = struct.unpack_from(f"<{nr}I", data, at)
             at += 4 * nr
             waddr = struct.unpack_from(f"<{nw}I", data, at)
@@ -85,11 +95,29 @@ def read_trace(path):
                 for w in range(a & ~3, a + s, 4):
                     words.add(w)
             regions.append(Region(tag, proc, pass_, name, start, end, flags, alias, hw,
-                                  frozenset(reads), frozenset(words)))
+                                  frozenset(reads), frozenset(words), rkind, part, marker))
         else:
             sys.exit(f"{path}: bad record {kind!r} at {at - 1}")
     events.sort()
     return events, regions
+
+
+def load_profiles(path):
+    """Process name ids -> profile names, from tww's src/f_pc/f_pc_profile_lst.cpp (ProfileList[] order)."""
+    t = Path(path).read_text()
+    m = re.search(r"ProfileList\[\]\s*=\s*\{(.*?)\};", t, re.S)
+    if not m:
+        return {}
+    names = {}
+    for e in m.group(1).split(","):
+        e = e.strip()
+        if not e:
+            continue
+        e = re.sub(r"#.*", "", e).strip()
+        e = re.sub(r"^&?g_profile_", "", e).split(".")[0].strip()
+        if e:
+            names[len(names)] = e
+    return names
 
 
 def load_symbols(path):
@@ -115,6 +143,15 @@ def name_of(table, addr):
 def simulate(events, regions, workers, max_cycles, privatized, conflicts, excluded=(), max_batch=0):
     lanes = workers + 1
     cap = max_batch if max_batch > 0 else lanes
+    # the words that count as writes for the RAW test, grouped by line, once per region
+    for r in regions:
+        if not hasattr(r, 'wlines'):
+            by_line = {}
+            for w in r.write_words:
+                if w in privatized or any(lo <= w < hi for lo, hi in excluded):
+                    continue
+                by_line.setdefault(w >> 6, []).append(w)
+            r.wlines = by_line
     """Per-frame batches; returns (serial, critical, stats)."""
     interrupts = [c for c, k, _ in events if k == "I"]
     retraces = [c for c, k, _ in events if k == "F"]
@@ -144,8 +181,8 @@ def simulate(events, regions, workers, max_cycles, privatized, conflicts, exclud
                 break
             dependent = False
             for earlier in batch:
-                hit = [w for w in earlier.write_words if (w >> 6) in r.read_lines and w not in privatized
-                       and not any(lo <= w < hi for lo, hi in excluded)]
+                shared = r.read_lines & earlier.wlines.keys()
+                hit = [w for line in shared for w in earlier.wlines[line]]
                 if hit:
                     dependent = True
                     for w in hit[:4]:
@@ -182,13 +219,15 @@ def main(argv=None):
     ap.add_argument("--exclude", action="append", default=[],
                     help="hex range LO-HI excluded from the RAW test (the guest stack: a region's own frames), repeatable")
     ap.add_argument("--symbols", help="tww config/GZLE01/symbols.txt, to name addresses")
+    ap.add_argument("--profiles", help="tww src/f_pc/f_pc_profile_lst.cpp, to name processes")
     ap.add_argument("--top", type=int, default=20)
     ap.add_argument("--max-batch", type=int, default=0,
                     help="regions a batch may hold (default: workers + 1); larger values model a queue over the workers, "
                          "with the batch's time the longest lane of a greedy assignment")
     args = ap.parse_args(argv)
 
-    events, regions = read_trace(args.trace)
+    events, all_regions = read_trace(args.trace)
+    profiles = load_profiles(args.profiles) if args.profiles else {}
     privatized = {int(x, 16) for x in args.privatize.split(",") if x}
     excluded = []
     for r in args.exclude:
@@ -196,33 +235,59 @@ def main(argv=None):
         excluded.append((int(lo, 16), int(hi, 16)))
     table = load_symbols(args.symbols) if args.symbols else []
     frames = sum(1 for _, k, _ in events if k == "F")
-    print(f"regions {len(regions)}, retraces {frames}, interrupts {sum(1 for _, k, _ in events if k == 'I')}, "
-          f"dsp steps {sum(1 for _, k, _ in events if k == 'S')}")
-    by_pass = Counter(PASS_NAMES.get(r.pass_, f"{r.pass_:08X}") for r in regions)
-    print("passes:", dict(by_pass))
-    total_cycles = sum(r.cycles for r in regions)
-    print(f"region cycles {total_cycles:,} (mean {total_cycles // max(1, len(regions)):,} a region)")
-    flag_counts = Counter()
-    for r in regions:
-        for bit, name in FLAGS:
-            if r.flags & bit:
-                flag_counts[name] += 1
-    print("flags:", dict(flag_counts))
-    alias = sum(r.alias for r in regions)
-    print(f"alias accesses {alias:,} over {sum(1 for r in regions if r.alias)} regions")
+    game_frames = max(1, frames // 2)
+    # the sub-phases of the scene's execute, if traced
+    subs = [r for r in all_regions if r.kind == "S"]
+    if subs:
+        by_marker = Counter(); n_marker = Counter()
+        for r in subs:
+            by_marker[r.marker] += r.cycles; n_marker[r.marker] += 1
+        xtotal = sum(r.cycles for r in all_regions if r.kind in ("X", "S"))
+        print("sub-phases of the scene's execute (share of the execute loop, calls a game frame, mean cycles):")
+        for mk, c in by_marker.most_common():
+            print(f"  {100*c/xtotal:5.1f} %  {n_marker[mk]/game_frames:5.1f}/frame  {c/n_marker[mk]:10,.0f}  {name_of(table, mk) or f'{mk:08X}'}")
+        scene_parts = [r for r in all_regions if r.kind == "X" and r.part > 0]
+        if scene_parts:
+            print(f"  {100*sum(r.cycles for r in scene_parts)/xtotal:5.1f} %  {len(scene_parts)/game_frames:5.1f}/frame  (the enclosing execute outside the sub-phases)")
+        print()
+    loops = [("execute", [r for r in all_regions if r.kind in ("X", "S")]), ("draw", [r for r in all_regions if r.kind == "D"])]
+    for loop_name, regions in loops:
+        if not regions:
+            continue
+        print(f"##### {loop_name} loop")
+        print(f"regions {len(regions)}, retraces {frames}, interrupts {sum(1 for _, k, _ in events if k == 'I')}, "
+              f"dsp steps {sum(1 for _, k, _ in events if k == 'S')}")
+        by_pass = Counter(PASS_NAMES.get(r.pass_, f"{r.pass_:08X}") for r in regions)
+        print("passes:", dict(by_pass))
+        total_cycles = sum(r.cycles for r in regions)
+        print(f"region cycles {total_cycles:,} (mean {total_cycles // max(1, len(regions)):,} a region)")
+        by_name = defaultdict(lambda: [0, 0])
+        for r in regions:
+            by_name[r.name][0] += r.cycles; by_name[r.name][1] += 1
+        print("heaviest processes (share of the loop, regions a game frame, mean cycles):")
+        for nm, (c, n) in sorted(by_name.items(), key=lambda kv: -kv[1][0])[:12]:
+            print(f"  {100*c/max(1,total_cycles):5.1f} %  {n/game_frames:5.1f}/frame  {c/n:10,.0f}  {profiles.get(nm, nm)}")
+        flag_counts = Counter()
+        for r in regions:
+            for bit, name in FLAGS:
+                if r.flags & bit:
+                    flag_counts[name] += 1
+        print("flags:", dict(flag_counts))
+        alias = sum(r.alias for r in regions)
+        print(f"alias accesses {alias:,} over {sum(1 for r in regions if r.alias)} regions")
 
-    for workers in sorted({1, 2, 3, args.workers}):
-        conflicts = Counter()
-        serial, critical, stats = simulate(events, regions, workers, args.max_cycles, privatized, conflicts, excluded, args.max_batch)
-        gain = 1 - critical / serial if serial else 0
-        print(f"\nworkers {workers}: serial {serial:,} critical {critical:,} -> {100 * gain:.1f} % off the loop "
-              f"time; batches {stats['batches']}, mean size {stats['batch-size-sum'] / max(1, stats['batches']):.2f}, "
-              f"offloaded {stats['offloaded']} of {stats['regions']} regions; "
-              f"ends: raw {stats['raw']}, window {stats['window']}, abort {stats['abort']}, max {stats['max-cycles']}")
-        if workers == args.workers:
-            print(f"top serializing words (workers {workers}):")
-            for w, n in conflicts.most_common(args.top):
-                print(f"  {w:08X} {n:6d}  {name_of(table, w)}")
+        for workers in sorted({1, 2, 3, args.workers}):
+            conflicts = Counter()
+            serial, critical, stats = simulate(events, regions, workers, args.max_cycles, privatized, conflicts, excluded, args.max_batch)
+            gain = 1 - critical / serial if serial else 0
+            print(f"\nworkers {workers}: serial {serial:,} critical {critical:,} -> {100 * gain:.1f} % off the loop "
+                  f"time; batches {stats['batches']}, mean size {stats['batch-size-sum'] / max(1, stats['batches']):.2f}, "
+                  f"offloaded {stats['offloaded']} of {stats['regions']} regions; "
+                  f"ends: raw {stats['raw']}, window {stats['window']}, abort {stats['abort']}, max {stats['max-cycles']}")
+            if workers == args.workers:
+                print(f"top serializing words (workers {workers}):")
+                for w, n in conflicts.most_common(args.top):
+                    print(f"  {w:08X} {n:6d}  {name_of(table, w)}")
     return 0
 
 

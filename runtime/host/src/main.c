@@ -2558,26 +2558,45 @@ static bool host_direct_can_skip_stage_select(void* user, const CPUState* cpu, u
 }
 
 // Shadow-batch trace (BLUEWAKE_SHADOW_TRACE=path, _FROM, _TO: retraces). With a
-// module built with BLUEWAKE_SHADOW_TRACE, every fpc region (one actor's
-// execute or draw, fpcLnIt_MethodCall's entry to its return into cNdIt_Method)
-// is written to PATH with its guest accesses, cycles and flags, along with the
+// module built with BLUEWAKE_SHADOW_TRACE, each marked region of the frame is
+// written to PATH with its guest accesses, cycles and flags, along with the
 // interrupt deliveries, DSP steps and retraces, for the limit study of
 // docs/planning/2026-11-03-parallel_guest_execution (scripts/shadow_limit_study.py
-// reads it). The two addresses are named here so the builder's watch list
-// (scripts/windows/direct_calls.py) brings the edge service to both.
+// reads it). A marker is an entry address and the return address its caller
+// lands on, with a kind: 'X' one process's execute (fpcLnIt_MethodCall, back
+// into cNdIt_Method), 'D' one process's draw (fpcDw_Execute, back into
+// fpcM_Draw), 'S' a sub-phase of the scene's execute (a call dScnPly_Execute
+// makes, back into it). A sub-phase splits the region it runs inside: the part
+// before it, the sub-phase, the part after, each written with the enclosing
+// process. The addresses are named here so the builder's watch list
+// (scripts/windows/direct_calls.py) brings the edge service to all of them.
 #include "../../../cmake/composite/shadow_trace.h"
-#define BW_SHADOW_TRACE_REGION_ENTRY 0x80040198u   // fpcLnIt_MethodCall
-#define BW_SHADOW_TRACE_REGION_RETURN 0x80244EFCu  // cNdIt_Method, after its bctrl
+typedef struct BwShadowTraceMarker { u32 entry, ret; char kind; } BwShadowTraceMarker;
+static const BwShadowTraceMarker g_shadow_trace_markers[] = {
+    {0x80040198u, 0x80244EFCu, 'X'},  // fpcLnIt_MethodCall -> cNdIt_Method
+    {0x8004042Cu, 0x8003E328u, 'D'},  // fpcDw_Execute -> fpcM_Draw
+    {0x80234570u, 0x8023501Cu, 'S'},  // dScnPly_ply_c::calcPauseTimer
+    {0x801971D8u, 0x80235030u, 'S'},  // dKy_itudemo_se
+    {0x8006B12Cu, 0x8023504Cu, 'S'},  // dDemo_manager_c::update
+    {0x800529B8u, 0x80235060u, 'S'},  // dComIfG_play_c::executeEvtManager
+    {0x8009F1D4u, 0x80235078u, 'S'},  // dAttention_c::Run
+    {0x8009C0F8u, 0x8023509Cu, 'S'},  // dDetect_c::proc
+};
+#define BW_SHADOW_TRACE_MARKERS (sizeof g_shadow_trace_markers / sizeof g_shadow_trace_markers[0])
+typedef struct BwShadowTraceRegion {
+    bool active;
+    char kind;
+    u8 part;
+    u32 marker, sp, tag, proc, pass, host_flags;
+    u16 name;
+    u64 start;
+} BwShadowTraceRegion;
 static BwShadowTrace* g_shadow_trace;
 static const CPUState* g_shadow_trace_cpu;
 static FILE* g_shadow_trace_file;
 static u64 g_shadow_trace_from, g_shadow_trace_to;
-static bool g_shadow_trace_in_region;
-static u64 g_shadow_trace_region_start;
-static u32 g_shadow_trace_region_tag, g_shadow_trace_region_proc, g_shadow_trace_region_pass;
-static u32 g_shadow_trace_region_sp;  // cNdIt_Method's frame: an inner cNdIt_Method's return is not ours
-static u16 g_shadow_trace_region_name;
-static u32 g_shadow_trace_host_flags;
+static BwShadowTraceRegion g_shadow_trace_region;   // the region being logged
+static BwShadowTraceRegion g_shadow_trace_outer;    // the region a sub-phase interrupted
 static unsigned long long g_shadow_trace_regions, g_shadow_trace_truncated;
 
 static inline bool shadow_trace_window(void) {
@@ -2601,8 +2620,8 @@ static void shadow_trace_put(const void* data, size_t size) {
 static void shadow_trace_event(char kind, u32 value, const CPUState* cpu) {
     if (g_shadow_trace == NULL || g_shadow_trace_file == NULL || !shadow_trace_window())
         return;
-    if (kind == 'I' && g_shadow_trace_in_region)
-        g_shadow_trace_host_flags |= BW_TRACE_FLAG_INTERRUPT;
+    if (kind == 'I' && g_shadow_trace_region.active)
+        g_shadow_trace_region.host_flags |= BW_TRACE_FLAG_INTERRUPT;
     const u64 cycle = shadow_trace_now(cpu);
     u8 record[1 + 4 + 8];
     record[0] = (u8)kind;
@@ -2611,24 +2630,39 @@ static void shadow_trace_event(char kind, u32 value, const CPUState* cpu) {
     shadow_trace_put(record, sizeof record);
 }
 
+static void shadow_trace_reset_sets(BwShadowTrace* trace) {
+    trace->read_count = 0u;
+    trace->write_count = 0u;
+    trace->flags = 0u;
+    trace->alias_accesses = 0u;
+    trace->hardware_accesses = 0u;
+    memset(trace->filter, 0xFF, sizeof trace->filter);
+}
+
+// Record: 'R', tag, proc, pass, name (u16), kind (u8), part (u8), marker,
+// start, end (u64), flags, alias, hardware, reads, writes; then the read
+// lines (u32 each), the store addresses (u32 each) and the store sizes (u8 each).
 static void shadow_trace_region_end(const CPUState* cpu) {
     BwShadowTrace* trace = g_shadow_trace;
+    BwShadowTraceRegion* r = &g_shadow_trace_region;
     trace->on = 0u;
-    g_shadow_trace_in_region = false;
+    r->active = false;
     const u64 end = shadow_trace_now(cpu);
-    const u32 flags = trace->flags | g_shadow_trace_host_flags;
+    const u32 flags = trace->flags | r->host_flags;
     if ((flags & (BW_TRACE_FLAG_READ_OVERFLOW | BW_TRACE_FLAG_WRITE_OVERFLOW)) != 0u)
         g_shadow_trace_truncated++;
     g_shadow_trace_regions++;
-    u8 head[1 + 4 * 3 + 2 + 2 + 8 * 2 + 4 * 5];
+    u8 head[1 + 4 * 3 + 2 + 1 + 1 + 4 + 8 * 2 + 4 * 5];
     size_t at = 0;
     head[at++] = 'R';
-    memcpy(head + at, &g_shadow_trace_region_tag, 4); at += 4;
-    memcpy(head + at, &g_shadow_trace_region_proc, 4); at += 4;
-    memcpy(head + at, &g_shadow_trace_region_pass, 4); at += 4;
-    memcpy(head + at, &g_shadow_trace_region_name, 2); at += 2;
-    head[at++] = 0; head[at++] = 0;
-    memcpy(head + at, &g_shadow_trace_region_start, 8); at += 8;
+    memcpy(head + at, &r->tag, 4); at += 4;
+    memcpy(head + at, &r->proc, 4); at += 4;
+    memcpy(head + at, &r->pass, 4); at += 4;
+    memcpy(head + at, &r->name, 2); at += 2;
+    head[at++] = (u8)r->kind;
+    head[at++] = r->part;
+    memcpy(head + at, &r->marker, 4); at += 4;
+    memcpy(head + at, &r->start, 8); at += 8;
     memcpy(head + at, &end, 8); at += 8;
     memcpy(head + at, &flags, 4); at += 4;
     memcpy(head + at, &trace->alias_accesses, 4); at += 4;
@@ -2641,36 +2675,83 @@ static void shadow_trace_region_end(const CPUState* cpu) {
     shadow_trace_put(trace->write_size, (size_t)trace->write_count);
 }
 
-static void shadow_trace_region_begin(CPUState* cpu) {
+static void shadow_trace_region_begin(CPUState* cpu, const BwShadowTraceRegion* like) {
     BwShadowTrace* trace = g_shadow_trace;
-    const u32 tag = cpu->gpr[3];
-    const u32 filter = cpu->gpr[4];
-    g_shadow_trace_region_tag = tag;
-    g_shadow_trace_region_proc = mem_read32(cpu, tag + 0x0Cu);    // create_tag_class::mpTagData
-    g_shadow_trace_region_name = mem_read16(cpu, g_shadow_trace_region_proc + 0x08u);  // base_process_class::mProcName
-    g_shadow_trace_region_pass = mem_read32(cpu, filter);         // method_filter::mpMethodFunc
-    g_shadow_trace_region_sp = cpu->gpr[1];
-    g_shadow_trace_region_start = shadow_trace_now(cpu);
-    g_shadow_trace_host_flags = 0u;
-    trace->read_count = 0u;
-    trace->write_count = 0u;
-    trace->flags = 0u;
-    trace->alias_accesses = 0u;
-    trace->hardware_accesses = 0u;
-    memset(trace->filter, 0xFF, sizeof trace->filter);
-    g_shadow_trace_in_region = true;
+    g_shadow_trace_region = *like;
+    g_shadow_trace_region.active = true;
+    g_shadow_trace_region.start = shadow_trace_now(cpu);
+    g_shadow_trace_region.host_flags = 0u;
+    shadow_trace_reset_sets(trace);
     trace->on = 1u;
 }
 
-static inline void shadow_trace_edge(CPUState* cpu, u32 address) {
-    if (address == BW_SHADOW_TRACE_REGION_ENTRY) {
-        if (g_shadow_trace_in_region)
-            shadow_trace_region_end(cpu);
-        if (g_shadow_trace_file != NULL && shadow_trace_window())
-            shadow_trace_region_begin(cpu);
-    } else if (address == BW_SHADOW_TRACE_REGION_RETURN && g_shadow_trace_in_region &&
-               cpu->gpr[1] == g_shadow_trace_region_sp) {
+static void shadow_trace_enter(CPUState* cpu, const BwShadowTraceMarker* m) {
+    BwShadowTraceRegion next;
+    memset(&next, 0, sizeof next);
+    if (m->kind == 'S') {
+        // A sub-phase: only inside a process's region; it keeps that process.
+        if (!g_shadow_trace_region.active || g_shadow_trace_region.kind == 'S')
+            return;
+        g_shadow_trace_outer = g_shadow_trace_region;
         shadow_trace_region_end(cpu);
+        next = g_shadow_trace_outer;
+        next.kind = 'S';
+        next.part = 0;
+        next.marker = m->entry;
+        next.sp = cpu->gpr[1];
+        shadow_trace_region_begin(cpu, &next);
+        return;
+    }
+    if (g_shadow_trace_region.active)
+        shadow_trace_region_end(cpu);   // a missed return: close it here
+    g_shadow_trace_outer.active = false;
+    const u32 r3 = cpu->gpr[3];
+    next.kind = m->kind;
+    next.marker = m->entry;
+    next.sp = cpu->gpr[1];
+    if (m->kind == 'X') {
+        next.tag = r3;
+        next.proc = mem_read32(cpu, r3 + 0x0Cu);   // create_tag_class::mpTagData
+        next.pass = mem_read32(cpu, cpu->gpr[4]);  // method_filter::mpMethodFunc
+    } else {
+        next.tag = 0u;
+        next.proc = r3;                            // fpcDw_Execute(base_process_class*)
+        next.pass = 0x8003E318u;                   // fpcM_Draw
+    }
+    next.name = mem_read16(cpu, next.proc + 0x08u);  // base_process_class::mProcName
+    shadow_trace_region_begin(cpu, &next);
+}
+
+static void shadow_trace_leave(CPUState* cpu, const BwShadowTraceMarker* m) {
+    if (!g_shadow_trace_region.active || g_shadow_trace_region.marker != m->entry ||
+        cpu->gpr[1] != g_shadow_trace_region.sp)
+        return;
+    const bool sub = g_shadow_trace_region.kind == 'S';
+    const u8 part = g_shadow_trace_outer.part;
+    shadow_trace_region_end(cpu);
+    if (sub && g_shadow_trace_outer.active) {
+        // The rest of the enclosing region, as its next part.
+        BwShadowTraceRegion next = g_shadow_trace_outer;
+        next.part = (u8)(part + 1u);
+        shadow_trace_region_begin(cpu, &next);
+        g_shadow_trace_outer.part = next.part;
+    }
+}
+
+static inline void shadow_trace_edge(CPUState* cpu, u32 address) {
+    for (size_t i = 0; i < BW_SHADOW_TRACE_MARKERS; ++i) {
+        const BwShadowTraceMarker* m = &g_shadow_trace_markers[i];
+        if (address == m->entry) {
+            if (g_shadow_trace_file != NULL && shadow_trace_window())
+                shadow_trace_enter(cpu, m);
+            else if (g_shadow_trace_region.active)
+                shadow_trace_region_end(cpu);
+            return;
+        }
+        if (address == m->ret) {
+            shadow_trace_leave(cpu, m);
+            return;
+        }
     }
 }
 
@@ -2709,11 +2790,12 @@ static void shadow_trace_start(void* lib, const CPUState* cpu_state) {
     g_shadow_trace_to = to != NULL ? strtoull(to, NULL, 10) : UINT64_MAX;
     g_shadow_trace = trace;
     g_shadow_trace_cpu = cpu_state;
-    static const char magic[8] = {'B', 'W', 'S', 'T', 1, 0, 0, 0};
+    static const char magic[8] = {'B', 'W', 'S', 'T', 2, 0, 0, 0};
     shadow_trace_put(magic, sizeof magic);
     atexit(shadow_trace_finish);
-    fprintf(stderr, "[shadow-trace] to %s, retraces %llu..%llu\n", path,
-            (unsigned long long)g_shadow_trace_from, (unsigned long long)g_shadow_trace_to);
+    fprintf(stderr, "[shadow-trace] to %s, retraces %llu..%llu, %u markers\n", path,
+            (unsigned long long)g_shadow_trace_from, (unsigned long long)g_shadow_trace_to,
+            (unsigned)BW_SHADOW_TRACE_MARKERS);
 }
 
 static inline __attribute__((always_inline)) bool host_chassis_edge_service_with(
