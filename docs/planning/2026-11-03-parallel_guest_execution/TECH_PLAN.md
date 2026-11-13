@@ -107,6 +107,24 @@ So about **+150–300 MB of RAM and +1.9 GB of disk when on, nothing when off**.
 
 Not RAM but memory all the same: two more cores running translated code pull their instruction and data working sets through the shared L3. Reads of live MEM1 are shared and read-only during a batch, so they cost no invalidations; the commit's writes invalidate only lines the workers no longer need. The instruction working set is the risk (the GX submission-thread experiment lost to cache traffic), and only the engine's A/B measures it.
 
+### What stays on
+
+Nothing is turned off on the game thread: the live module keeps every optimization in the stack (fixed CPU and MEM1, 2 MB pages, inline FP, the gather pipe and its batching, lean memory and deadlines, behaviour timing, direct calls and the direct gate, inline GPR, the native routines, the alias cache and the constant-time lookup, the actor-search native). The takeover is one certified native entry at `cNdIt_Method`, which declines unless workers are configured. The shadow module gives up only what ties code to one CPU, one RAM and one GX stream:
+
+| Optimization | Live module | Shadow module |
+| --- | --- | --- |
+| Fixed CPU, fixed MEM1 | on | off (per-worker CPU state and memory view) |
+| Gather pipe | on | off; FIFO stores abort in the execute pass, go to a per-region log in the draw pass |
+| 2 MB pages (#554) | on | off (memory) |
+| Direct calls, direct gate (#552) | on | on, with a thread-local depth and a shadow answer: quiet, and a watched address aborts |
+| Inline FP, inline GPR, lean memory, lean deadlines, behaviour timing, fp_checks | on | on, unchanged (they work through `cpu->ram` and the block shape) |
+| Alias cache (#495), constant-time lookup (#501) | on | on for reads; alias writes go to the side buffer |
+| Native routines (math, vec, skin, game math, J3D) | on | on only once each logs the ranges its certification already checks, so the commit sees their writes; until then off in shadows (translated bodies, same cycles) |
+| Host-side natives at watched addresses (actor search, HD room clip, stage select) | on | a watched address aborts the shadow; the region runs live |
+| PGO profile | trained | untrained in v1 |
+
+The trace build (B1) is the shipped configuration plus logging. For a trace the native routines are switched off at runtime (`BLUEWAKE_NATIVE_*=0`), so their accesses go through the logged translated bodies; they charge the same cycles, so the trace's cycle counts are those of the shipped build.
+
 ### Limit study (E2), from the same logs, single-threaded
 
 Trace mode runs every region of the execute and draw passes as a shadow on the game thread, one at a time, committing each at once, and dumps per region: the process type, cycles, read lines, write words, abort reason, and the interrupt and deadline events with their cycles. Offline, a script simulates the engine's choices per frame for a batch policy (workers, maximum cycles) and reports the parallel fraction, the failure causes and the serializing words. Three states (`8-busiest`, `6-play`, `1-outset`), 300 frames each, paced to real time so the interrupt pattern is the real one, on the Deck over SSH.
