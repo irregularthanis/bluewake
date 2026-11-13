@@ -6,6 +6,44 @@ Source: BlueWake `main` after #554; RecompCore DSP HLE; tww
 
 ## Design (2026-11-13): shadow batches
 
+### The design in one picture
+
+```mermaid
+flowchart TD
+    subgraph Game["Game thread (live module, serial path)"]
+        Loop["fpc loop:<br/>cNdIt_Method"] --> Take{"Takeover<br/>engaged?"}
+        Take -->|"no"| Live["Run the actor live<br/>(as today)"]
+        Take -->|"yes"| Form["Form a batch:<br/>R0 now, R1…Rk next,<br/>sized to the window<br/>before the next interrupt"]
+        Form --> R0["R0 as a shadow<br/>on the game thread"]
+        R0 --> Join["Join"]
+        Join --> Check{"C1 window<br/>C2 no RAW<br/>C3 host reads<br/>C4 replayable<br/>C5 links"}
+        Check -->|"all hold"| Commit["Commit private writes<br/>in serial order,<br/>charge the cycles,<br/>service deferred deadlines"]
+        Check -->|"Rj fails"| Prefix["Commit R0…Rj−1,<br/>run Rj live,<br/>continue the loop"]
+        Commit --> Loop
+        Prefix --> Loop
+        Live --> Loop
+    end
+    subgraph Workers["Workers (shadow module copies, parked between batches)"]
+        W1["R1 as a shadow"] --> Join
+        W2["Rk as a shadow"] --> Join
+    end
+    Form --> W1
+    Form --> W2
+    subgraph Memory["Guest memory"]
+        Live1["Live MEM1<br/>(memfd, MAP_SHARED)"]
+        P1["Private view 1<br/>(MAP_PRIVATE: reads live,<br/>writes copy)"]
+        P2["Private view k"]
+        Live1 -.-> P1
+        Live1 -.-> P2
+    end
+    R0 -. "reads live, writes a log" .-> Live1
+    W1 -. "reads + private writes" .-> P1
+    W2 -. "reads + private writes" .-> P2
+    Commit -- "write logs → live" --> Live1
+```
+
+A shadow is the same translated code built without the fixed CPU and fixed MEM1, so each worker has its own registers and its own view of memory. During a batch nothing writes live state; the join is the only place writes land, in the order the serial program would have made them. A failed check costs the wasted shadow run, never correctness: the region runs live from the same logical point, as if the takeover had never engaged.
+
 ### Vocabulary
 
 - **Live state**: the guest CPU, MEM1, the REL alias storage and the host's device state, as the serial build keeps them.
