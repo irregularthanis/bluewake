@@ -69,7 +69,7 @@ Status: **Reopened 2026-11-13: shadow batches** (exact by construction; see the 
 - [ ] M10-T05: Keep or revert under the extended rule
 
 ### M11: Settings (follow-up, after M10 keeps the feature)
-- [ ] M11-T01: A `settings.ini` entry (`BLUEWAKE_SHADOW_WORKERS`, like the HD-look switches), read at launch, surfaced in the settings menu as "Parallel workers: Off / Auto / 1 / 2 / 3"; Off is the default
+- [ ] M11-T01: A `settings.ini` entry (`BLUEWAKE_SHADOW_WORKERS`, like the HD-look switches), read at launch, surfaced in the settings menu as "Parallel workers: Off / Auto / 1 … N", N the device's physical cores less one; Off is the default. A chosen number is honoured as set (clamped only to N), Auto is one entry among them
 - [ ] M11-T02: Auto: a per-device rule from M10's results (the Deck's measured optimum; elsewhere from the core count less the game thread, the GX worker and the renderer, clamped to what M10 qualified), shown as the resolved number
 - [ ] M11-T03: The menu refuses the setting with one line when the shadow module is absent or mismatched, and the census is visible in the diagnostics overlay
 
