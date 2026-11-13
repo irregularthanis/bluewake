@@ -183,7 +183,7 @@ Order: B2 first (no code change beyond the builder option), B1 as soon as the tr
 
 ### Power on the Deck (E0, 2026-11-13)
 
-Headless, the game thread ignores two spinning cores (−0.65 %). In Game Mode one pair so far: 25.92 → 23.22 game FPS (**−10.4 %**) and the GPU's busy time 18.1 → 22.4 ms, with spinners that are busy 100 % of the time. The shared power budget is real. Consequences for the engine: workers **park** between batches (futex, not spin) and the gain must beat a penalty that scales with worker busy time; E2 reports the parallel fraction *and* the worker duty it implies. The remaining four Game Mode launches run once the Deck's Steam cloud-sync prompt is dismissed.
+Headless, the game thread ignores two spinning cores (−0.65 %). In Game Mode, six launches: 25.77 → 20.30 game FPS (**−21.3 %**) and the GPU's busy time 18.2 → 24.4 ms, with two spinners busy 100 % of the time pinned to the other two physical cores (an earlier unpinned pair read −10.4 %). The shared power budget is real. Consequences for the engine: workers **park** between batches (futex, not spin) and the gain must beat a penalty that scales with worker busy time; E2 reports the parallel fraction *and* the worker duty it implies. This is the worst case: full-duty occupation. Parked workers cost in proportion to their duty, which is at most the parallel fraction of the frame; the refinement is a duty sweep (spinners busy 25 %, 50 %, 75 % of the time in 1 ms bursts) to read the penalty curve the engine's expected duty lands on. As written, the E0 stop rule (≥ 15 %) is hit, and the owner decides whether the sweep replaces it.
 
 ### Changes
 
