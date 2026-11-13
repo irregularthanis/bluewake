@@ -42,7 +42,7 @@ The regions come from the game's own loops: `cNdIt_Method`, the iterator behind 
 
 | Stage | Question | Go if | Stop if |
 | --- | --- | --- | --- |
-| E0 (week 1) | Does occupying two more Deck cores slow the game thread (shared power)? | penalty < 8 % headless, < 12 % Game Mode | ≥ 15 % |
+| E0 (week 1) | What do two busy cores cost the game thread, per device? | Measured: headless −0.65 %, Deck Game Mode −21 % at full duty. **Not a stop:** the penalty is the Deck's shared power budget, not the design's; it sets the Deck's bar (the gain at the workers' real duty must beat the penalty at that duty, from a duty sweep), while devices without the budget keep the full gain | — (the gate is E2) |
 | E1 (week 1) | How much slower is a shadow run than a live one (`cpu->ram`, logs)? | < 20 % | ≥ 35 % |
 | E2 (weeks 2–3) | Limit study: how much of a busy frame sits in batches that validate, at 2 workers? | ≥ 15 % of game-thread time after the known privatization rules | < 10 % |
 | M9 (weeks 4–8) | Engine + loop takeover, opt-in, differential-tested | every batch's commit equals serial re-execution in the verify build | — |
