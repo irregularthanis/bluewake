@@ -65,6 +65,21 @@ Trace mode runs every region of the execute and draw passes as a shadow on the g
 | E1 | Shadow overhead | The shadow module in trace mode, no parallelism, same route as live | ≥ 35 % |
 | E2 | Available exact parallelism | The limit study | < 10 % at 2 workers |
 
+### Builds (agreed 2026-11-13)
+
+Two module variants, both from the current composite, built locally with `build_script` (about 40 minutes each; host-only rebuilds with `--reuse`):
+
+| Build | What | Measures |
+| --- | --- | --- |
+| **B1 trace** | The shipped configuration (fixed CPU and MEM1, every optimization) plus `BLUEWAKE_SHADOW_TRACE`: the memory fast paths in `gather_pipe.h` append each load's cache line to a per-CPU filter and each store's (address, size) to a log, behind one predictable branch (`bw_trace_on`); the host delimits regions at `fpcLnIt_MethodCall` (0x80040198) entry and return through the edge watch list, and at each region end dumps the sets, the cycles, the abort-relevant events (MMIO, timer read, exception, watched call, alias writes) and the deadline/interrupt events to a binary trace. Single-threaded, writes stay live | E1b (logging cost: `bw_trace_on` off vs on) and **E2** (the limit study) |
+| **B2 shadow** | `global_guest_cpu.py` not run, `fixed_mem1` off, gather pipe off (`BLUEWAKE_SHADOW=1`): the worker module. It is an ordinary ABI-v3 module, so the host can also run it *as the live module* | E1a (the non-fixed codegen's own cost, as the live module) and M9 |
+
+Order: B2 first (no code change beyond the builder option), B1 as soon as the trace paths are written, then the limit study on the Deck. `build_script` passes `--fixed-cpu --fixed-mem1` to the Linux builder unconditionally; a local `--shadow` option drops them and sets the module define.
+
+### Power on the Deck (E0, 2026-11-13)
+
+Headless, the game thread ignores two spinning cores (−0.65 %). In Game Mode one pair so far: 25.92 → 23.22 game FPS (**−10.4 %**) and the GPU's busy time 18.1 → 22.4 ms, with spinners that are busy 100 % of the time. The shared power budget is real. Consequences for the engine: workers **park** between batches (futex, not spin) and the gain must beat a penalty that scales with worker busy time; E2 reports the parallel fraction *and* the worker duty it implies. The remaining four Game Mode launches run once the Deck's Steam cloud-sync prompt is dismissed.
+
 ### Changes (proposed)
 
 | Status | File / symbol | Edit | Milestone |
