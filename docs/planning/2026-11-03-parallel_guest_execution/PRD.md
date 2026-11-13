@@ -50,6 +50,12 @@ The regions come from the game's own loops: `cNdIt_Method`, the iterator behind 
 
 The target is the busiest view holding 30 game frames a second. The ceiling is set by E2, not by core count: with two workers and the actor loop half independent, 15–25 % off the loop portions of the frame; with the loop mostly coupled, a few percent and the work stops at E2 with a definitive number.
 
+### Memory, opt-in, and the existing optimizations
+
+- **Opt-in, twice.** At run time, `BLUEWAKE_SHADOW_WORKERS=N` (unset or 0: the takeover declines and the game runs exactly today's path, the oracle). At build time, the shadow module is a second player-built module (`--shadow`), so the default build and AppImage are unchanged. Even when on, everything outside a validated batch runs live.
+- **Memory.** Off: nothing. On: about **+150–300 MB of RAM** (the shadow module's relocated tables ≈ 50 MB and its hot code through the page cache; the workers' private pages or store buffers; logs under 1 MB a worker) and **+1.9 GB of disk** for the shadow module. It must stay file-backed and single: a 2 MB-page copy of its code or a copy per worker would cost ≈ 1.5 GB more each on a Deck whose 16 GB are shared with the GPU, the main module on 2 MB pages and the HD textures. Keeping the workers' writes private either moves live MEM1 onto a memfd (fast shadow loads, but live MEM1 may lose transparent huge pages) or uses a per-worker store buffer (live MEM1 untouched, shadow loads ≈ 10–20 % slower); E1 decides. Details: [TECH_PLAN, Memory and opt-in](TECH_PLAN.md#memory-and-opt-in).
+- **Nothing is turned off on the game thread.** The live module keeps the whole performance stack (fixed CPU and MEM1, 2 MB pages, inline FP, the gather pipe and batching, lean memory and deadlines, behaviour timing, direct calls and the direct gate, inline GPR, the native routines, the alias cache and lookup, the actor-search native). The shadow module gives up only what ties code to one CPU, one RAM and one GX stream: the fixed CPU, the fixed MEM1 and the gather pipe, plus 2 MB pages for memory's sake. The native routines run in shadows once each logs the ranges its certification already checks; until then they are off in shadows only, at the same cycles. Details: [TECH_PLAN, What stays on](TECH_PLAN.md#what-stays-on).
+
 ### Non-goals (revised)
 
 60 game updates a second; changing where interrupts land or how cycles are charged; concurrent guest threads; the audio thread; the GX worker; speculation that writes live state; any path that is not reproducible run to run.
