@@ -120,13 +120,23 @@ The launch sequence with the feature on:
 3. Check it: ABI, CPU layout and game id as for any module, and the pair: both modules export the composite digest their build recorded (`composite-final.digest`, a new `bluewake_composite_digest()` on both) and the shadow module its `bluewake_composite_shadow_v1()`. Not found, or any mismatch: one log line, workers off, and the game runs on the game module alone as today.
 4. Load it with `dlmopen(LM_ID_NEWLM, …)` on Linux (`dlopen` of its own path elsewhere): one copy, thread-local module state, never remapped onto 2 MB pages. Start the workers.
 
-| | Game module (always loaded, unchanged) | Shadow module (loaded in addition, only with workers on) |
-| --- | --- | --- |
-| File | `gGZLE01_recomp.so` (`.dll` on Windows, `.dylib` on Apple): an ELF shared object, ≈ 412 MB, the translated game code | `gGZLE01_shadow.so` (`.dll`, `.dylib`): a second file, the same composite built with `fixed_cpu=0`, `fixed_mem1=0`, gather pipe off, `BLUEWAKE_SHADOW=1`; ≈ 400 MB; an ordinary ABI-v3 module plus the shadow exports |
-| Runs on | The game thread | The worker threads only |
-| Produced by | The player's build from their disc (`scripts/linux/build.py`), into `BlueWake/` of the build output and the AppImage, as now | The same build with `--shadow-module` added: a second CMake target over the same `composite-src` and mod variants, written beside the game module as `BlueWake/gGZLE01_shadow.so` and copied next to the published AppImage; inside the AppImage only with `--shadow-bundled` |
-| Cost at launch | As today | Relocating ≈ 50 MB of tables: a fraction of a second, only when opted in |
-| Memory | Code on 2 MB pages (#554), as today | Hot code through the page cache ≈ 100–200 MB, tables ≈ 50 MB, on top of the game module's |
+What is in memory with the feature on: two modules at once, each with its own thread(s).
+
+```mermaid
+flowchart LR
+    subgraph Process["BlueWake process, workers on"]
+        GM["Game module<br/>gGZLE01_recomp.so<br/>(always loaded, as today)"]
+        SM["Shadow module<br/>gGZLE01_shadow.so<br/>(a second file, loaded in addition)"]
+        GT["Game thread"] --> GM
+        W1["Worker 1"] --> SM
+        W2["Worker 2"] --> SM
+    end
+```
+
+| Loaded | Role | File | Produced by | Memory |
+| --- | --- | --- | --- | --- |
+| Always, as today | Runs the game thread with every optimization | `gGZLE01_recomp.so` (`.dll` on Windows, `.dylib` on Apple), ≈ 412 MB, the translated game code | The player's build from their disc (`scripts/linux/build.py`), into `BlueWake/` of the build output and the AppImage, as now | Code on 2 MB pages (#554), as today |
+| In addition, only with workers on | Runs the worker threads' shadow regions; the game thread never executes it | `gGZLE01_shadow.so` (`.dll`, `.dylib`), ≈ 400 MB: a second file, built from the same translated sources as the game module with `fixed_cpu=0`, `fixed_mem1=0`, gather pipe off, `BLUEWAKE_SHADOW=1`; an ordinary ABI-v3 module plus the shadow exports | The same build with `--shadow-module` added: a second CMake target over the same `composite-src` and mod variants, written beside the game module as `BlueWake/gGZLE01_shadow.so` and copied next to the published AppImage; inside the AppImage only with `--shadow-bundled` | On top of the game module's: hot code through the page cache ≈ 100–200 MB, tables ≈ 50 MB; relocating them costs a fraction of a second at launch |
 
 So, in practice: with the feature off nothing is added to the AppImage, the data folder or the launch. Opting in means building the extra `.so` once (the builder flag) and placing it beside the AppImage, then setting `BLUEWAKE_SHADOW_WORKERS`; the game module is untouched either way, and the AppImage itself grows (by ≈ 150 MB compressed) only if the owner later chooses to bundle the second file.
 
