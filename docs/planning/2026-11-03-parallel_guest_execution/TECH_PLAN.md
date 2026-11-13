@@ -91,6 +91,22 @@ WAW is settled by commit order (the last writer wins, as in serial); WAR is sett
 | **Verify build** | `BLUEWAKE_SHADOW_VERIFY=1`: after each commit the engine re-executes the batch's regions live from a saved copy of the touched state and compares memory over the union of write sets, the CPU state, the cycles and the GX bytes; any difference is a fatal report. For CI's headless routes and for the Deck during qualification |
 | **Census** | Per batch: regions, cycles, window, outcome (committed, C1…C5), per-region abort reasons, the top conflicting words named through the symbol map; printed at exit like the other censuses. It drives the P1 list |
 
+### Memory and opt-in
+
+Off (the default), the design costs nothing: `BLUEWAKE_SHADOW_WORKERS` unset or 0 means the takeover declines, the shadow module is never loaded, and the live path is byte-for-byte today's. On, per worker count N (2 on the Deck):
+
+| Item | RAM when on | Disk | Note |
+| --- | --- | --- | --- |
+| The shadow module (one copy, thread-local module state) | ≈ 50 MB of relocated tables and data (the `pc_table`s: one pointer per translated instruction, ≈ 30 MB for the DOL and RELs, more with the mod variants) plus its hot code through the page cache, ≈ 100–200 MB at a busy view | + ≈ 1.9 GB, player-built like the main module (`--shadow` at build time, no PGO training) | Not huge-paged: a 2 MB-page copy of its code would be another ≈ 1.5 GB resident. v1 may instead load one copy per worker with `dlmopen`, at ≈ 50 MB more per copy |
+| Private memory for the workers' writes | A: `MAP_PRIVATE` views of a memfd-backed MEM1: ≈ 0 until written, then the pages a region writes (tens to hundreds of KB), released after each batch. B: a per-worker store buffer consulted by loads, ≈ 100 KB | — | A keeps shadow loads at full speed but moves the live MEM1 onto a memfd, where it may lose transparent huge pages (a cost to the game thread itself; `MFD_HUGETLB` needs reserved pages). B leaves the live MEM1 untouched and costs each shadow load a probe (≈ 10–20 % on shadow runs). E1 decides |
+| Per-worker logs (read filter, write log, alias side buffer) | < 1 MB each | — | Reset per batch |
+| The engine's own state and census | < 1 MB | — | — |
+| Trace build (B1) only | ≈ 1 MB in the module; the dump ≈ 10–30 KB a region, ≈ 1 GB per 100 traced frames | diagnostic, never shipped | Written through a large stdio buffer; the host stalling on I/O does not change the guest timeline |
+
+So about **+150–300 MB of RAM and +1.9 GB of disk when on, nothing when off**. The Deck's 16 GB are shared with the GPU and already carry the main module on 2 MB pages (≈ 1.5–2 GB) and the HD textures, which is why the shadow module must stay file-backed and single.
+
+Not RAM but memory all the same: two more cores running translated code pull their instruction and data working sets through the shared L3. Reads of live MEM1 are shared and read-only during a batch, so they cost no invalidations; the commit's writes invalidate only lines the workers no longer need. The instruction working set is the risk (the GX submission-thread experiment lost to cache traffic), and only the engine's A/B measures it.
+
 ### Limit study (E2), from the same logs, single-threaded
 
 Trace mode runs every region of the execute and draw passes as a shadow on the game thread, one at a time, committing each at once, and dumps per region: the process type, cycles, read lines, write words, abort reason, and the interrupt and deadline events with their cycles. Offline, a script simulates the engine's choices per frame for a batch policy (workers, maximum cycles) and reports the parallel fraction, the failure causes and the serializing words. Three states (`8-busiest`, `6-play`, `1-outset`), 300 frames each, paced to real time so the interrupt pattern is the real one, on the Deck over SSH.
