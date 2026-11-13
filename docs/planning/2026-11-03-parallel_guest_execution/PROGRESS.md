@@ -26,7 +26,7 @@ Status: **Reopened 2026-11-13: shadow batches** (exact by construction; see the 
 ### M3: Overlap window (parallel with M1)
 - [x] M3-T01: Check `entry()`/`entryIn` for matrix reads: reads values only for Z-sorted buffers and env/proj-map texture matrices
 - [ ] M8-T04: Markers for the rest of the frame (owner, 2026-11-13: get the data): 'D' one process's draw (`fpcDw_Execute` 0x8004042C → the return into `fpcM_Draw` 0x8003E328) and 'S' the scene execute's sub-phases (`calcPauseTimer`, `dKy_itudemo_se`, `dDemo_manager_c::update`, `executeEvtManager`, `dAttention_c::Run`, `dDetect_c::proc`, each back into `dScnPly_Execute`), splitting the enclosing region into parts; trace record v2 (kind, part, marker); the study reports per loop and names processes from `f_pc_profile_lst.cpp`
-- [ ] M8-T05: B1b build, three traces, the study per loop (execute, draw) and the sub-phase split
+- [~] M8-T05: B1b built 15:12 from `902b501c4` (`artifacts/shadow-b1/902b501c4c58`, 271 MB; the markers compiled clean); the three traces and the study per loop running from 15:13 (`measure-shadow-batches/v2/`)
 - [ ] M3-T02: Read trace of an eligible model's matrices between update and flush in Outset
 - [ ] M3-T03: Count eligible models per frame and joints per model; go/no-go for M4
 
