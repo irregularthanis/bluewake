@@ -109,6 +109,20 @@ How the disk shows up: the AppImage is a compressed image (242 MB today, holding
 
 Not RAM but memory all the same: two more cores running translated code pull their instruction and data working sets through the shared L3. Reads of live MEM1 are shared and read-only during a batch, so they cost no invalidations; the commit's writes invalidate only lines the workers no longer need. The instruction working set is the risk (the GX submission-thread experiment lost to cache traffic), and only the engine's A/B measures it.
 
+### Packaging and loading the shadow module
+
+| | Main module (today) | Shadow module (proposed) |
+| --- | --- | --- |
+| File | `gGZLE01_recomp.so` (`.dll` on Windows, `.dylib` on Apple): an ELF shared object, ≈ 412 MB, the translated game code | `gGZLE01_shadow.so` (`.dll`, `.dylib`): the same composite built with `fixed_cpu=0`, `fixed_mem1=0`, gather pipe off, `BLUEWAKE_SHADOW=1`; ≈ 400 MB; an ordinary ABI-v3 module plus the shadow exports |
+| Produced by | The player's build from their disc (`scripts/linux/build.py`), into `BlueWake/` of the build output and the AppImage | The same build with `--shadow-module`: a second CMake target over the same `composite-src` and mod variants, written beside the main module as `BlueWake/gGZLE01_shadow.so` and copied next to the published AppImage; not placed inside the AppImage unless `--shadow-bundled` |
+| Found at launch | `BLUEWAKE_COMPOSITE=path`, else the module argument, else `<app dir>/gGZLE01_recomp.so` ([`linux_entry.c`](../../../linux/src/linux_entry.c)) | Only when `BLUEWAKE_SHADOW_WORKERS` ≥ 1: `BLUEWAKE_SHADOW_MODULE=path`, else `<app dir>/gGZLE01_shadow.so` (bundled), else next to the AppImage (`$APPIMAGE`'s folder; on the Deck `/home/deck/gGZLE01_shadow.so` beside `BlueWake-*.AppImage`), else the data folder (`~/.local/share/BlueWake/`). Not found: one log line, workers off, the game runs as today |
+| Checked | ABI, CPU layout and game id ([`module_cpu_contract.h`](../../../cmake/composite/module_cpu_contract.h)) | The same, plus the pair: both modules export the composite digest their build recorded (`composite-final.digest`, a new `bluewake_composite_digest()` on both), and the shadow exports `bluewake_composite_shadow_v1()` (version, the trace/shadow state). A digest mismatch, a missing export or a foreign game id refuses the shadow module: one log line, workers off |
+| Loaded with | `dlopen(RTLD_NOW \| RTLD_LOCAL)` | `dlmopen(LM_ID_NEWLM, …)` on Linux, `dlopen` of its own path elsewhere; one copy, thread-local module state; never remapped onto 2 MB pages |
+| Cost at launch | — | Relocating ≈ 50 MB of tables: a fraction of a second, only when opted in |
+| Memory | Code on 2 MB pages (#554) | Hot code through the page cache ≈ 100–200 MB, tables ≈ 50 MB |
+
+So, in practice: with the feature off nothing is added to the AppImage, the data folder or the launch. Opting in means building the extra `.so` once (the builder flag) and placing it beside the AppImage, then setting `BLUEWAKE_SHADOW_WORKERS=2`; the AppImage itself grows (by ≈ 150 MB compressed) only if the owner later chooses to bundle it.
+
 ### What stays on
 
 Nothing is turned off on the game thread: the live module keeps every optimization in the stack (fixed CPU and MEM1, 2 MB pages, inline FP, the gather pipe and its batching, lean memory and deadlines, behaviour timing, direct calls and the direct gate, inline GPR, the native routines, the alias cache and the constant-time lookup, the actor-search native). The takeover is one certified native entry at `cNdIt_Method`, which declines unless workers are configured. The shadow module gives up only what ties code to one CPU, one RAM and one GX stream:
