@@ -1606,6 +1606,8 @@ def main():
     parser.add_argument("--appimage", action="store_true",
                         help="after the normal app-folder build, package it as an AppImage")
     args = parser.parse_args()
+    if getattr(args, "shadow_trace", False):
+        os.environ["BLUEWAKE_SHADOW_TRACE"] = "1"   # the trace markers join the watch list (direct_calls.watched_addresses)
     if args.module_sources and (args.source_only or args.host_only or args.check_only):
         parser.error("--module-sources cannot be combined with --source-only, --host-only or --check-only")
     if args.clang18 and args.clang22:

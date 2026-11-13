@@ -2564,17 +2564,47 @@ static bool host_direct_can_skip_stage_select(void* user, const CPUState* cpu, u
 // docs/planning/2026-11-03-parallel_guest_execution (scripts/shadow_limit_study.py
 // reads it). A marker is an entry address and the return address its caller
 // lands on, with a kind: 'X' one process's execute (fpcLnIt_MethodCall, back
-// into cNdIt_Method), 'D' one process's draw (fpcDw_Execute, back into
-// fpcM_Draw), 'S' a sub-phase of the scene's execute (a call dScnPly_Execute
-// makes, back into it). A sub-phase splits the region it runs inside: the part
+// into cNdIt_Method), 'D' one process's draw (fpcM_Draw, back into its caller),
+// 'S' a sub-phase of the scene's execute or draw (a call dScnPly_Execute or
+// dScnPly_Draw makes, back into it). A marker must sit on a chassis boundary: a call that
+// crosses translated chunks (a call inside one chunk is a plain jump and never
+// reaches the edge service). A sub-phase splits the region it runs inside: the part
 // before it, the sub-phase, the part after, each written with the enclosing
 // process. The addresses are named here so the builder's watch list
-// (scripts/windows/direct_calls.py) brings the edge service to all of them.
+// (scripts/windows/direct_calls.py) brings the edge service to all of them, in
+// a trace build only (BLUEWAKE_SHADOW_TRACE=1 in the builder's environment);
+// every other build keeps its direct calls at these sites.
+// bluewake-trace-watch-begin
 #include "../../../cmake/composite/shadow_trace.h"
 typedef struct BwShadowTraceMarker { u32 entry, ret; char kind; } BwShadowTraceMarker;
 static const BwShadowTraceMarker g_shadow_trace_markers[] = {
     {0x80040198u, 0x80244EFCu, 'X'},  // fpcLnIt_MethodCall -> cNdIt_Method
-    {0x8004042Cu, 0x8003E328u, 'D'},  // fpcDw_Execute -> fpcM_Draw
+    // The draw pass: fpcM_DrawIterater walks the root layer (cNdIt_Method ->
+    // cTgIt_MethodCall, one chunk) and cTgIt_MethodCall's bctrl calls fpcM_Draw
+    // for the scene; dScnPly_Draw then calls fpcM_Draw for every process on the
+    // draw list. fpcM_Draw -> fpcDw_Execute is one chunk, so fpcM_Draw is the marker.
+    {0x8003E318u, 0x80245630u, 'D'},  // fpcM_Draw of a root-layer process (the scene), back into cTgIt_MethodCall
+    {0x8003E318u, 0x80234F44u, 'D'},  // fpcM_Draw of each process, from dScnPly_Draw's loop; nested in the scene's draw
+    // dScnPly_Draw's sub-phases (cross-chunk calls, back into it)
+    {0x800AE81Cu, 0x80234BC8u, 'S'},  // dCcS::Move (actor collision)
+    {0x800AC96Cu, 0x80234E68u, 'S'},  // dCcMassS_Mng::Prepare
+    {0x80052C48u, 0x80234E70u, 'S'},  // dComIfG_play_c::executeGrass
+    {0x8005301Cu, 0x80234E78u, 'S'},  // executeTree
+    {0x80053120u, 0x80234E80u, 'S'},  // executeWood
+    {0x80052E08u, 0x80234E88u, 'S'},  // executeFlower
+    {0x8007D094u, 0x80234ED4u, 'S'},  // dPa_control_c::calc3D (particles)
+    {0x8007D0DCu, 0x80234EE4u, 'S'},  // dPa_control_c::calc2D
+    {0x800AE878u, 0x80234F0Cu, 'S'},  // dCcS::MassClear
+    {0x8007D124u, 0x80234F1Cu, 'S'},  // dPa_control_c::calcMenu
+    {0x800410ACu, 0x80234F30u, 'S'},  // dStage_roomControl_c::checkDrawArea
+    {0x8007B074u, 0x80234F70u, 'S'},  // dPa_modelControl_c::draw
+    {0x80052AB0u, 0x80234F78u, 'S'},  // drawMagma
+    {0x80052C74u, 0x80234F80u, 'S'},  // drawGrass
+    {0x80053048u, 0x80234F88u, 'S'},  // drawTree
+    {0x8005314Cu, 0x80234F90u, 'S'},  // drawWood
+    {0x80052E34u, 0x80234F98u, 'S'},  // drawFlower
+    {0x800AE83Cu, 0x80234FA0u, 'S'},  // dCcS::Draw
+    {0x8009F460u, 0x80234FACu, 'S'},  // dAttention_c::Draw
     {0x80234570u, 0x8023501Cu, 'S'},  // dScnPly_ply_c::calcPauseTimer
     {0x801971D8u, 0x80235030u, 'S'},  // dKy_itudemo_se
     {0x8006B12Cu, 0x8023504Cu, 'S'},  // dDemo_manager_c::update
@@ -2582,6 +2612,7 @@ static const BwShadowTraceMarker g_shadow_trace_markers[] = {
     {0x8009F1D4u, 0x80235078u, 'S'},  // dAttention_c::Run
     {0x8009C0F8u, 0x8023509Cu, 'S'},  // dDetect_c::proc
 };
+// bluewake-trace-watch-end
 #define BW_SHADOW_TRACE_MARKERS (sizeof g_shadow_trace_markers / sizeof g_shadow_trace_markers[0])
 typedef struct BwShadowTraceRegion {
     bool active;
@@ -2689,8 +2720,9 @@ static void shadow_trace_enter(CPUState* cpu, const BwShadowTraceMarker* m) {
     BwShadowTraceRegion next;
     memset(&next, 0, sizeof next);
     if (m->kind == 'S') {
-        // A sub-phase: only inside a process's region; it keeps that process.
-        if (!g_shadow_trace_region.active || g_shadow_trace_region.kind == 'S')
+        // A sub-phase: only inside a top-level process region (not inside a draw
+        // nested in the scene's draw, nor another sub-phase); it keeps that process.
+        if (!g_shadow_trace_region.active || g_shadow_trace_region.kind == 'S' || g_shadow_trace_outer.active)
             return;
         g_shadow_trace_outer = g_shadow_trace_region;
         shadow_trace_region_end(cpu);
@@ -2702,9 +2734,18 @@ static void shadow_trace_enter(CPUState* cpu, const BwShadowTraceMarker* m) {
         shadow_trace_region_begin(cpu, &next);
         return;
     }
-    if (g_shadow_trace_region.active)
-        shadow_trace_region_end(cpu);   // a missed return: close it here
-    g_shadow_trace_outer.active = false;
+    bool nested = false;
+    if (g_shadow_trace_region.active) {
+        // A process's draw inside the scene's draw loop: the scene's draw resumes
+        // as its next part when the process's draw returns. Anything else is a
+        // missed return: close it here.
+        nested = m->kind == 'D' && g_shadow_trace_region.kind == 'D' && !g_shadow_trace_outer.active;
+        if (nested)
+            g_shadow_trace_outer = g_shadow_trace_region;
+        shadow_trace_region_end(cpu);
+    }
+    if (!nested)
+        g_shadow_trace_outer.active = false;
     const u32 r3 = cpu->gpr[3];
     next.kind = m->kind;
     next.marker = m->entry;
@@ -2726,15 +2767,16 @@ static void shadow_trace_leave(CPUState* cpu, const BwShadowTraceMarker* m) {
     if (!g_shadow_trace_region.active || g_shadow_trace_region.marker != m->entry ||
         cpu->gpr[1] != g_shadow_trace_region.sp)
         return;
-    const bool sub = g_shadow_trace_region.kind == 'S';
+    const bool resumes = g_shadow_trace_outer.active &&
+                         (g_shadow_trace_region.kind == 'S' || g_shadow_trace_region.kind == 'D');
     const u8 part = g_shadow_trace_outer.part;
     shadow_trace_region_end(cpu);
-    if (sub && g_shadow_trace_outer.active) {
+    if (resumes) {
         // The rest of the enclosing region, as its next part.
         BwShadowTraceRegion next = g_shadow_trace_outer;
         next.part = (u8)(part + 1u);
         shadow_trace_region_begin(cpu, &next);
-        g_shadow_trace_outer.part = next.part;
+        g_shadow_trace_outer.active = false;   // the resumed region is the current one again, not suspended
     }
 }
 
@@ -2748,7 +2790,7 @@ static inline void shadow_trace_edge(CPUState* cpu, u32 address) {
                 shadow_trace_region_end(cpu);
             return;
         }
-        if (address == m->ret) {
+        if (address == m->ret && g_shadow_trace_region.active && g_shadow_trace_region.marker == m->entry) {
             shadow_trace_leave(cpu, m);
             return;
         }

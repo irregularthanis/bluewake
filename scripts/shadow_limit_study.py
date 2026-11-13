@@ -202,7 +202,7 @@ def simulate(events, regions, workers, max_cycles, privatized, conflicts, exclud
         else:
             lane = [0] * lanes
             for r in sorted(batch, key=lambda x: -x.cycles):
-                i = lane.index(min(lane)); lane[i] += r.cycles
+                least = lane.index(min(lane)); lane[least] += r.cycles
             critical += max(lane)
         stats["batches"] += 1
         stats["batch-size-sum"] += len(batch)
@@ -237,20 +237,22 @@ def main(argv=None):
     frames = sum(1 for _, k, _ in events if k == "F")
     game_frames = max(1, frames // 2)
     # the sub-phases of the scene's execute, if traced
-    subs = [r for r in all_regions if r.kind == "S"]
-    if subs:
+    for pass_addr, pass_label in ((0x8003E370, "execute"), (0x8003E318, "draw")):
+        subs = [r for r in all_regions if r.kind == "S" and r.pass_ == pass_addr]
+        if not subs:
+            continue
+        loop_total = sum(r.cycles for r in all_regions if r.pass_ == pass_addr)
         by_marker = Counter(); n_marker = Counter()
         for r in subs:
             by_marker[r.marker] += r.cycles; n_marker[r.marker] += 1
-        xtotal = sum(r.cycles for r in all_regions if r.kind in ("X", "S"))
-        print("sub-phases of the scene's execute (share of the execute loop, calls a game frame, mean cycles):")
+        print(f"sub-phases of the scene's {pass_label} (share of the {pass_label} loop, calls a game frame, mean cycles):")
         for mk, c in by_marker.most_common():
-            print(f"  {100*c/xtotal:5.1f} %  {n_marker[mk]/game_frames:5.1f}/frame  {c/n_marker[mk]:10,.0f}  {name_of(table, mk) or f'{mk:08X}'}")
-        scene_parts = [r for r in all_regions if r.kind == "X" and r.part > 0]
+            print(f"  {100*c/loop_total:5.1f} %  {n_marker[mk]/game_frames:5.1f}/frame  {c/n_marker[mk]:10,.0f}  {name_of(table, mk) or f'{mk:08X}'}")
+        scene_parts = [r for r in all_regions if r.kind != "S" and r.pass_ == pass_addr and r.part > 0]
         if scene_parts:
-            print(f"  {100*sum(r.cycles for r in scene_parts)/xtotal:5.1f} %  {len(scene_parts)/game_frames:5.1f}/frame  (the enclosing execute outside the sub-phases)")
+            print(f"  {100*sum(r.cycles for r in scene_parts)/loop_total:5.1f} %  {len(scene_parts)/game_frames:5.1f}/frame  (the scene's own {pass_label} between the sub-phases)")
         print()
-    loops = [("execute", [r for r in all_regions if r.kind in ("X", "S")]), ("draw", [r for r in all_regions if r.kind == "D"])]
+    loops = [("execute", [r for r in all_regions if r.pass_ == 0x8003E370]), ("draw", [r for r in all_regions if r.pass_ == 0x8003E318])]
     for loop_name, regions in loops:
         if not regions:
             continue
