@@ -111,6 +111,8 @@ Not RAM but memory all the same: two more cores running translated code pull the
 
 ### Packaging and loading the shadow module
 
+**Added, not replaced.** When the feature is on, both modules are loaded: the main module keeps running the game thread exactly as today, and only the worker threads execute code from the shadow module. (E1a's measurement runs the shadow variant as the live module once, to price its overhead; that is a test, not the shipped arrangement.)
+
 | | Main module (today) | Shadow module (proposed) |
 | --- | --- | --- |
 | File | `gGZLE01_recomp.so` (`.dll` on Windows, `.dylib` on Apple): an ELF shared object, ≈ 412 MB, the translated game code | `gGZLE01_shadow.so` (`.dll`, `.dylib`): the same composite built with `fixed_cpu=0`, `fixed_mem1=0`, gather pipe off, `BLUEWAKE_SHADOW=1`; ≈ 400 MB; an ordinary ABI-v3 module plus the shadow exports |
