@@ -118,18 +118,21 @@ Order: B2 first (no code change beyond the builder option), B1 as soon as the tr
 
 Headless, the game thread ignores two spinning cores (−0.65 %). In Game Mode one pair so far: 25.92 → 23.22 game FPS (**−10.4 %**) and the GPU's busy time 18.1 → 22.4 ms, with spinners that are busy 100 % of the time. The shared power budget is real. Consequences for the engine: workers **park** between batches (futex, not spin) and the gain must beat a penalty that scales with worker busy time; E2 reports the parallel fraction *and* the worker duty it implies. The remaining four Game Mode launches run once the Deck's Steam cloud-sync prompt is dismissed.
 
-### Changes (proposed)
+### Changes
 
 | Status | File / symbol | Edit | Milestone |
 | --- | --- | --- | --- |
-| Proposed | `scripts/windows/build.py`, `cmake/composite/CMakeLists.txt` | A second module target, `gGZLE01_shadow.so`: same composite, no `fixed-cpu`/`fixed-mem1`, `BLUEWAKE_SHADOW=1` | M7 |
-| Proposed | `cmake/composite/gather_pipe.h`, `shadow_memory.h` (new) | Under `BLUEWAKE_SHADOW`: read filter, write log, alias side buffer, FIFO log, abort on MMIO and timers | M7 |
-| Proposed | `cmake/composite/direct_calls.h` | `bw_direct_depth` thread-local under `BLUEWAKE_SHADOW`; shadow `bw_host_can_skip` | M7 |
-| Proposed | `runtime/host/src/shadow_engine.c` (new) | Workers, private mappings, batches, validation, commit, deferred deadlines, census, verify mode | M9 |
-| Proposed | `runtime/host/src/main.c` | Load the shadow module copies; memfd-backed MEM1; `BLUEWAKE_SHADOW_WORKERS`, `_VERIFY`, `_TRACE` | M7, M9 |
+| Added | `cmake/composite/shadow_trace.h`, `shadow_trace.c` | The trace state (read lines through a direct-mapped filter, stores by address and size, flags, alias and hardware counts) and its export `bluewake_composite_shadow_trace()`; built only with `BLUEWAKE_SHADOW_TRACE` | M7 (B1) |
+| Modified | `cmake/composite/gather_pipe.h`, `inline_gpr.h` | Trace hooks on every guest access path: the inline MEM1 loads and stores, the slow paths (hardware flagged, aliases counted), the interpreter's paired-single and fallback instructions, `dcbz`, the timebase read, the inline register frames; empty macros otherwise | M7 (B1) |
+| Modified | `cmake/composite/CMakeLists.txt`, `scripts/linux/build.py` | `BLUEWAKE_SHADOW_TRACE` option, `--shadow-trace` | M7 (B1) |
+| Modified | `runtime/host/src/main.c` | `BLUEWAKE_SHADOW_TRACE=path` (`_FROM`, `_TO` retraces): regions delimited at `fpcLnIt_MethodCall`'s entry (0x80040198) and the return into `cNdIt_Method` (0x80244EFC, at the entry's stack pointer), both named so the builder's watch list brings the edge service there; per region the process, its name, the pass, cycles, flags and the access sets; events for interrupt deliveries, DSP steps and retraces | M7 (B1) |
+| Added | `scripts/shadow_limit_study.py` | The offline simulation: batches as the engine would form them (workers, window, RAW at line granularity, privatized words), the parallel fraction, the serializing words named through the symbols | M8 |
+| Local | `build_script` | `--shadow` (no fixed CPU/MEM1), `--shadow-trace` | M7 |
+| Proposed | `runtime/host/src/shadow_engine.c` (new) | Workers, private mappings, batch formation, validation, commit, deferred deadlines, census, verify mode | M9 |
 | Proposed | `scripts/windows/native_entries.py` list, `cmake/composite/native_iter.c` (new) | The `cNdIt_Method` takeover as a certified native entry | M9 |
-| Proposed | `scripts/shadow_limit_study.py` (new) | The offline simulation over trace dumps | M8 |
 | Proposed | `tests/shadow_engine_test.c` (new) | Synthetic batches: every condition's failure path, commit order, reductions, links | M9 |
+
+Trace record format (little-endian): `BWST` + version; `R` region: tag, process, pass, name (u16), start and end cycle (u64), flags, alias and hardware counts, then the read lines (u32 each, address >> 6) and the stores (u32 address each, then u8 size each); `I` interrupt (PI cause, or 0 for the decrementer), `S` DSP step, `F` retrace: u32 value, u64 cycle.
 
 ### Effort
 
