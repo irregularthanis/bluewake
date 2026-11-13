@@ -235,6 +235,10 @@ Three questions, each with its own evidence. Every measured run is in Steam Deck
 | Energy a game frame (J/frame = power / FPS) | Derived | The efficiency number that stays comparable when FPS changes |
 | Temperature and throttling over a long run | hwmon temps; a 15-minute soak at the busiest view, Game Mode, on battery and docked | Sustained behaviour, not the first minute |
 
+**How many workers**
+
+The worker count is measured, not chosen. The limit study reports the parallel fraction at 1, 2 and 3 workers from the same trace, which shows where the batches stop filling (the actor loop's dependences, not the core count, set that). The Deck A/B then prices each worker: its share of the critical path removed, against the clock it costs the game thread and the GPU through the shared power budget (E0: two always-busy cores cost 10.4 % and +24 % GPU time; parked workers cost less, in proportion to their duty). The optimum is the count with the best p95/p99 update time and the fewest misses at the CPU-bound states with no loss at the states that already hold 30, per device: the Deck has four cores and already runs the game thread, the GX worker and the renderer, so one or two is the realistic range there, while a desktop may take more. That count becomes the default when the option is on, with the engine free to park workers for a while when the census shows batches failing to validate.
+
 **Sensitivity and stability**
 
 - Workers 1, 2, 3; batch-size caps; a core-hog beside the game (the engine must degrade to serial, not stall at joins).
