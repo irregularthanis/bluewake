@@ -61,8 +61,12 @@ Status: **Reopened 2026-11-13: shadow batches** (exact by construction; see the 
 - [ ] M9-T04: Draw pass: FIFO log and ordered append to the live gather pipe
 
 ### M10: Deck qualification (depends: M9)
-- [ ] M10-T01: ≥ 6 interleaved Game Mode launches × 8 states, workers 2 (and 1, 3): FPS, checkpoints, pictures, power, thermals
-- [ ] M10-T02: Keep or revert under #503's rule
+- [ ] M10-T00: Tooling: the host's `[threads]` exit line, the engine census, the merged summary with the sampler's power and clock series, the fault-injection switches (TECH_PLAN, *Testing strategy*)
+- [ ] M10-T01: Exactness: checkpoints every retrace vs serial on all 8 states; identical run to run with workers; pictures, route and audio digests; the verify build; fault injection
+- [ ] M10-T02: ≥ 6 interleaved Game Mode launches × 8 states, workers 2 (and 1, 3): FPS and the per-update tail, busy and per-thread CPU time, engine census, GPU time, IPC
+- [ ] M10-T03: Power and heat: APU power, clocks, energy a frame, a 15-minute soak on battery and docked
+- [ ] M10-T04: Stability: transitions, REL load/unload, states, menus, suspend/resume, a 30-minute session; core-hog degradation
+- [ ] M10-T05: Keep or revert under the extended rule
 
 ## Evidence ledger
 

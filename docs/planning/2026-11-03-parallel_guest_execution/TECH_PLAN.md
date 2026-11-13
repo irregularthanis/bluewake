@@ -202,6 +202,50 @@ Week 1: E0, E1, the open questions. Weeks 2–3: E2. Weeks 4–8: engine, takeov
 
 ---
 
+### Testing strategy
+
+Three questions, each with its own evidence. Every measured run is in Steam Deck Game Mode with the play settings (3x, the HD look, Smooth Motion, `settings.ini`), from the saved states, interleaved A/B/B/A with the serial build of the same commit as the control, at least six launches a side, after an A/A pair that sets the noise floor. Means alone would miss the point at a scene that already holds 30: there the gain is headroom, not frames.
+
+**1. Is it exact?** (the gate; nothing else counts until this holds)
+
+| Check | How |
+| --- | --- |
+| Guest checkpoints identical to the serial build, every retrace | `BLUEWAKE_GUEST_CHECKPOINT_INTERVAL=1` on both builds over each state's route; the first differing retrace names the failure |
+| Identical run to run with workers on | The same route three times with workers; checkpoints must not depend on worker timing |
+| Pictures, GX stream, audio | `frame_compare.py` at fixed retraces; the route digest; the audio capture digest |
+| Every batch equals its serial re-execution | The verify build (`BLUEWAKE_SHADOW_VERIFY=1`) on the headless CI routes and once per state on the Deck |
+| The fallback path | Fault injection: a switch that fails validation at random (and one that aborts shadows at random); the outputs must stay identical and the census must show the fallbacks |
+
+**2. Did work move, and did the frame get cheaper?** (per state, per build)
+
+| Metric | Source | Why |
+| --- | --- | --- |
+| Game FPS, and the per-update time distribution: p50, p95, p99, worst, updates over 33.3 ms, `[fps-dip]` counts and causes | `[perf]` lines (rate, busy, worst_ms, hitches), `[fps-dip]` | The critical path and its tail; at 30 FPS the tail and the misses are the result |
+| Game-thread busy time (%) and its CPU time | `[perf] busy=`, `/proc/PID/task/*/stat` deltas per thread at exit | Headroom at scenes already at 30; the time actually taken off the thread |
+| Worker CPU time and duty cycle; GX worker and renderer threads | The same per-thread deltas, printed by the host at exit (`[threads]`) | Work moved, and the busy fraction the power model needs |
+| Engine census: batches a frame, regions offloaded, batch sizes, cycles committed, failures by condition (C1–C5), aborts by reason, fallback cycles, the top serializing words | The engine's exit census | Without it an FPS change can't be interpreted |
+| GPU busy time a frame, present waits, draws a frame | `[gpu-prof]` (`DOL_AURORA_GPU_PROF=1`), the render log | The GPU's share of the shared budget; E0 showed +24 % GPU time under two busy cores |
+| IPC, cycles and instructions a frame on the game thread | `perf stat` over the window (as #503/#592) | Separates less work from a slower clock |
+
+**3. What did it cost in power and heat?** (the Deck's budget is shared)
+
+| Metric | Source | Why |
+| --- | --- | --- |
+| APU power (mean, p95), CPU clock per core, GPU clock and busy % at 4 Hz | `sampler3.sh` (hwmon `power1_average`, `cpufreq/scaling_cur_freq`, `gpu_busy_percent`, `freq1_input`), aligned to the run's window | The E0 finding in numbers: what the workers' duty costs the game thread's clock and the GPU |
+| Energy a game frame (J/frame = power / FPS) | Derived | The efficiency number that stays comparable when FPS changes |
+| Temperature and throttling over a long run | hwmon temps; a 15-minute soak at the busiest view, Game Mode, on battery and docked | Sustained behaviour, not the first minute |
+
+**Sensitivity and stability**
+
+- Workers 1, 2, 3; batch-size caps; a core-hog beside the game (the engine must degrade to serial, not stall at joins).
+- All eight states (`1-outset` … `8-busiest`, the lava room among them for its alias-heavy collision) and the tour stops; report per state, not pooled.
+- Scene transitions, REL load and unload (batches drained first), save and load states with workers on, pause and menus, Deck suspend and resume, a 30-minute play session.
+- Desktop Linux and Windows: the serial fallback verified where the engine has no backend.
+
+**Acceptance** (per #503's rule, extended): checkpoints identical in every run; ahead of the serial build in every interleaved launch on the game-thread metrics at CPU-bound states, and no worse on any at states that already hold 30 (p95/p99, dips, busy time, GPU time); power and energy a frame recorded, not gated, but a Game Mode power rise that lowers the game thread's clock counts against the result through those metrics.
+
+**Tooling to add:** a host `[threads]` exit line (CPU time per thread), the engine census, a merged summary (`gmsum` with the sampler's power and clock series aligned to the window and the census), and the fault-injection switches.
+
 ## Earlier plan (2026-11-03/04)
 
 ## Inspected facts
