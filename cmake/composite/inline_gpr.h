@@ -2,6 +2,9 @@
 #define BLUEWAKE_INLINE_GPR_H
 
 #include "direct_calls.h"
+#if defined(BLUEWAKE_SHADOW_TRACE)
+#include "shadow_trace.h"
+#endif
 
 /* Bulk charging cannot expose a different PC/downcount to an MMIO or journal
  * callback. Validate the complete stack span before using the inline routine.
@@ -37,6 +40,12 @@ static inline bool bw_inline_gpr_memory_ready(CPUState* cpu, unsigned first) {
 static inline u8* bw_inline_gpr_frame(CPUState* cpu, unsigned first, bool save) {
     const u32 size = 4u * (32u - first);
     const u32 canonical = (cpu->gpr[11] - size) & ~0x40000000u;
+#if defined(BLUEWAKE_SHADOW_TRACE)
+    if (save)
+        bw_trace_write(canonical, size);
+    else
+        bw_trace_read(canonical, size);
+#endif
     if (save && cpu->reserve_valid) {
         const u32 granule = cpu->reserve_addr & ~0x40000000u & ~31u;
         if (granule >= (canonical & ~31u) && granule <= ((canonical + size - 1u) & ~31u))

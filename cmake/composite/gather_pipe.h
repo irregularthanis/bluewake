@@ -29,6 +29,21 @@
 #include "core/cpu.h"
 #include "gather_pipe_batch.h"
 
+/* The shadow-batch trace (shadow_trace.h): every guest access logged while
+ * the host has a region switched on. Compiles to nothing otherwise. */
+#if defined(BLUEWAKE_SHADOW_TRACE)
+#include "shadow_trace.h"
+#define BW_TRACE_READ(addr, size) bw_trace_read((addr), (size))
+#define BW_TRACE_WRITE(addr, size) bw_trace_write((addr), (size))
+#define BW_TRACE_SLOW(cpu, addr, size, store) bw_trace_slow((cpu), (addr), (size), (store))
+#define BW_TRACE_FLAG(flag) bw_trace_flag(flag)
+#else
+#define BW_TRACE_READ(addr, size) ((void)0)
+#define BW_TRACE_WRITE(addr, size) ((void)0)
+#define BW_TRACE_SLOW(cpu, addr, size, store) ((void)0)
+#define BW_TRACE_FLAG(flag) ((void)0)
+#endif
+
 typedef void (*BwGatherPipeWrite)(u64 value, u8 size);
 extern BwGatherPipeWrite bw_gather_pipe_write;
 
@@ -109,6 +124,7 @@ BW_GATHER_PIPE_STAGE void bw_gather_pipe_put(u64 value, u8 size) {
 #undef BW_GATHER_PIPE_STAGE
 
 static __attribute__((noinline)) void bw_mem_write8_slow(CPUState* cpu, u32 addr, u8 value) {
+    BW_TRACE_SLOW(cpu, addr, 1u, true);
     if (__builtin_expect(bw_hardware(addr), 0)) {
         if (bw_gather_pipe(cpu, addr, 1u)) {
             bw_gather_pipe_put(value, 1);
@@ -120,6 +136,7 @@ static __attribute__((noinline)) void bw_mem_write8_slow(CPUState* cpu, u32 addr
 }
 
 static __attribute__((noinline)) void bw_mem_write16_slow(CPUState* cpu, u32 addr, u16 value) {
+    BW_TRACE_SLOW(cpu, addr, 2u, true);
     if (__builtin_expect(bw_hardware(addr), 0)) {
         if (bw_gather_pipe(cpu, addr, 2u)) {
             bw_gather_pipe_put(value, 2);
@@ -131,6 +148,7 @@ static __attribute__((noinline)) void bw_mem_write16_slow(CPUState* cpu, u32 add
 }
 
 static __attribute__((noinline)) void bw_mem_write32_slow(CPUState* cpu, u32 addr, u32 value) {
+    BW_TRACE_SLOW(cpu, addr, 4u, true);
     if (__builtin_expect(bw_hardware(addr), 0)) {
         if (bw_gather_pipe(cpu, addr, 4u)) {
             bw_gather_pipe_put(value, 4);
@@ -142,6 +160,7 @@ static __attribute__((noinline)) void bw_mem_write32_slow(CPUState* cpu, u32 add
 }
 
 static __attribute__((noinline)) void bw_mem_write64_slow(CPUState* cpu, u32 addr, u64 value) {
+    BW_TRACE_SLOW(cpu, addr, 8u, true);
     if (__builtin_expect(bw_hardware(addr), 0)) {
         if (bw_gather_pipe(cpu, addr, 8u)) {
             bw_gather_pipe_put(value, 8);
@@ -153,24 +172,28 @@ static __attribute__((noinline)) void bw_mem_write64_slow(CPUState* cpu, u32 add
 }
 
 static __attribute__((noinline)) u8 bw_mem_read8_slow(CPUState* cpu, u32 addr) {
+    BW_TRACE_SLOW(cpu, addr, 1u, false);
     if (__builtin_expect(bw_hardware(addr), 0))
         bw_gather_pipe_drain();
     return mem_read8(cpu, addr);
 }
 
 static __attribute__((noinline)) u16 bw_mem_read16_slow(CPUState* cpu, u32 addr) {
+    BW_TRACE_SLOW(cpu, addr, 2u, false);
     if (__builtin_expect(bw_hardware(addr), 0))
         bw_gather_pipe_drain();
     return mem_read16(cpu, addr);
 }
 
 static __attribute__((noinline)) u32 bw_mem_read32_slow(CPUState* cpu, u32 addr) {
+    BW_TRACE_SLOW(cpu, addr, 4u, false);
     if (__builtin_expect(bw_hardware(addr), 0))
         bw_gather_pipe_drain();
     return mem_read32(cpu, addr);
 }
 
 static __attribute__((noinline)) u64 bw_mem_read64_slow(CPUState* cpu, u32 addr) {
+    BW_TRACE_SLOW(cpu, addr, 8u, false);
     if (__builtin_expect(bw_hardware(addr), 0))
         bw_gather_pipe_drain();
     return mem_read64(cpu, addr);
@@ -200,13 +223,16 @@ static __attribute__((noinline)) u64 bw_mem_read64_slow(CPUState* cpu, u32 addr)
     (BW_RAM_FAST(cpu, addr, size) && !(cpu)->reserve_valid && g_mem_write_journal == NULL)
 
 static inline __attribute__((always_inline)) u8 bw_mem_read8(CPUState* cpu, u32 addr) {
-    if (__builtin_expect(BW_RAM_FAST(cpu, addr, 1u), 1))
+    if (__builtin_expect(BW_RAM_FAST(cpu, addr, 1u), 1)) {
+        BW_TRACE_READ(addr, 1u);
         return BW_RAM_BYTES[addr - GC_RAM_BASE];
+    }
     return bw_mem_read8_slow(cpu, addr);
 }
 
 static inline __attribute__((always_inline)) u16 bw_mem_read16(CPUState* cpu, u32 addr) {
     if (__builtin_expect(BW_RAM_FAST(cpu, addr, 2u), 1)) {
+        BW_TRACE_READ(addr, 2u);
         u16 value;
         memcpy(&value, BW_RAM_BYTES + (addr - GC_RAM_BASE), 2);
         return __builtin_bswap16(value);
@@ -216,6 +242,7 @@ static inline __attribute__((always_inline)) u16 bw_mem_read16(CPUState* cpu, u3
 
 static inline __attribute__((always_inline)) u32 bw_mem_read32(CPUState* cpu, u32 addr) {
     if (__builtin_expect(BW_RAM_FAST(cpu, addr, 4u), 1)) {
+        BW_TRACE_READ(addr, 4u);
         u32 value;
         memcpy(&value, BW_RAM_BYTES + (addr - GC_RAM_BASE), 4);
         return __builtin_bswap32(value);
@@ -225,6 +252,7 @@ static inline __attribute__((always_inline)) u32 bw_mem_read32(CPUState* cpu, u3
 
 static inline __attribute__((always_inline)) u64 bw_mem_read64(CPUState* cpu, u32 addr) {
     if (__builtin_expect(BW_RAM_FAST(cpu, addr, 8u), 1)) {
+        BW_TRACE_READ(addr, 8u);
         u64 value;
         memcpy(&value, BW_RAM_BYTES + (addr - GC_RAM_BASE), 8);
         return __builtin_bswap64(value);
@@ -234,6 +262,7 @@ static inline __attribute__((always_inline)) u64 bw_mem_read64(CPUState* cpu, u3
 
 static inline __attribute__((always_inline)) void bw_mem_write8(CPUState* cpu, u32 addr, u8 value) {
     if (__builtin_expect(BW_RAM_FAST_STORE(cpu, addr, 1u), 1)) {
+        BW_TRACE_WRITE(addr, 1u);
         BW_RAM_BYTES[addr - GC_RAM_BASE] = value;
         return;
     }
@@ -242,6 +271,7 @@ static inline __attribute__((always_inline)) void bw_mem_write8(CPUState* cpu, u
 
 static inline __attribute__((always_inline)) void bw_mem_write16(CPUState* cpu, u32 addr, u16 value) {
     if (__builtin_expect(BW_RAM_FAST_STORE(cpu, addr, 2u), 1)) {
+        BW_TRACE_WRITE(addr, 2u);
         const u16 word = __builtin_bswap16(value);
         memcpy(BW_RAM_BYTES + (addr - GC_RAM_BASE), &word, 2);
         return;
@@ -251,6 +281,7 @@ static inline __attribute__((always_inline)) void bw_mem_write16(CPUState* cpu, 
 
 static inline __attribute__((always_inline)) void bw_mem_write32(CPUState* cpu, u32 addr, u32 value) {
     if (__builtin_expect(BW_RAM_FAST_STORE(cpu, addr, 4u), 1)) {
+        BW_TRACE_WRITE(addr, 4u);
         const u32 word = __builtin_bswap32(value);
         memcpy(BW_RAM_BYTES + (addr - GC_RAM_BASE), &word, 4);
         return;
@@ -260,6 +291,7 @@ static inline __attribute__((always_inline)) void bw_mem_write32(CPUState* cpu, 
 
 static inline __attribute__((always_inline)) void bw_mem_write64(CPUState* cpu, u32 addr, u64 value) {
     if (__builtin_expect(BW_RAM_FAST_STORE(cpu, addr, 8u), 1)) {
+        BW_TRACE_WRITE(addr, 8u);
         const u64 word = __builtin_bswap64(value);
         memcpy(BW_RAM_BYTES + (addr - GC_RAM_BASE), &word, 8);
         return;
@@ -332,23 +364,30 @@ BW_ACCESS_ATO(64, u64)
  * locked-cache zero. Quantised loads and stores are common in vertex and
  * skinning code, so they hand the batch over only on the way to the hardware. */
 static inline void bw_fallback_instruction(CPUState* cpu, u32 raw, u32 cia) {
+    BW_TRACE_FLAG(BW_TRACE_FLAG_FALLBACK);
     bw_gather_pipe_drain();
     ppc_fallback_instruction(cpu, raw, cia);
 }
 
 static inline bool bw_psq_load(CPUState* cpu, u8 frD, u32 ea, bool w, u8 gqr, bool indexed, u32 cia) {
+    BW_TRACE_FLAG(BW_TRACE_FLAG_PSQ_FALLBACK);
+    BW_TRACE_SLOW(cpu, ea, w ? 4u : 8u, false);
     if (__builtin_expect(bw_hardware(ea), 0))
         bw_gather_pipe_drain();
     return ppc_psq_load(cpu, frD, ea, w, gqr, indexed, cia);
 }
 
 static inline bool bw_psq_store(CPUState* cpu, u8 frS, u32 ea, bool w, u8 gqr, bool indexed, u32 cia) {
+    BW_TRACE_FLAG(BW_TRACE_FLAG_PSQ_FALLBACK);
+    BW_TRACE_SLOW(cpu, ea, w ? 4u : 8u, true);
     if (__builtin_expect(bw_hardware(ea), 0))
         bw_gather_pipe_drain();
     return ppc_psq_store(cpu, frS, ea, w, gqr, indexed, cia);
 }
 
 static inline void bw_dcbz_l(CPUState* cpu, u32 ea, u32 cia) {
+    BW_TRACE_FLAG(BW_TRACE_FLAG_DCBZ);
+    BW_TRACE_SLOW(cpu, ea & ~31u, 32u, true);
     bw_gather_pipe_drain();
     ppc_dcbz_l(cpu, ea, cia);
 }
@@ -357,6 +396,13 @@ static inline void bw_dcbz_l(CPUState* cpu, u32 ea, u32 cia) {
  * another name: the chunks get inline_fp.h's, which falls back on this one. */
 #define dolrecomp_f32_from_bits bw_generated_f32_from_bits
 
+#if defined(BLUEWAKE_SHADOW_TRACE)
+static inline u32 bw_trace_mftb(CPUState* cpu, u16 tbr, u32 cia) {
+    BW_TRACE_FLAG(BW_TRACE_FLAG_TIMER);
+    return ppc_mftb(cpu, tbr, cia);
+}
+#define ppc_mftb bw_trace_mftb
+#endif
 #define ppc_fallback_instruction bw_fallback_instruction
 #define ppc_psq_load bw_psq_load
 #define ppc_psq_store bw_psq_store
