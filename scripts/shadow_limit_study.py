@@ -112,7 +112,9 @@ def name_of(table, addr):
     return ""
 
 
-def simulate(events, regions, workers, max_cycles, privatized, conflicts):
+def simulate(events, regions, workers, max_cycles, privatized, conflicts, excluded=(), max_batch=0):
+    lanes = workers + 1
+    cap = max_batch if max_batch > 0 else lanes
     """Per-frame batches; returns (serial, critical, stats)."""
     interrupts = [c for c, k, _ in events if k == "I"]
     retraces = [c for c, k, _ in events if k == "F"]
@@ -129,7 +131,7 @@ def simulate(events, regions, workers, max_cycles, privatized, conflicts):
         serial += r0.cycles
         stats["regions"] += 1
         k = i + 1
-        while k < len(regions) and len(batch) < workers + 1:
+        while k < len(regions) and len(batch) < cap:
             r = regions[k]
             if r.flags & ABORTING:
                 stats["abort"] += 1
@@ -142,7 +144,8 @@ def simulate(events, regions, workers, max_cycles, privatized, conflicts):
                 break
             dependent = False
             for earlier in batch:
-                hit = [w for w in earlier.write_words if (w >> 6) in r.read_lines and w not in privatized]
+                hit = [w for w in earlier.write_words if (w >> 6) in r.read_lines and w not in privatized
+                       and not any(lo <= w < hi for lo, hi in excluded)]
                 if hit:
                     dependent = True
                     for w in hit[:4]:
@@ -157,7 +160,13 @@ def simulate(events, regions, workers, max_cycles, privatized, conflicts):
             stats["regions"] += 1
             stats["offloaded"] += 1
             k += 1
-        critical += max(r.cycles for r in batch)
+        if len(batch) <= lanes:
+            critical += max(r.cycles for r in batch)
+        else:
+            lane = [0] * lanes
+            for r in sorted(batch, key=lambda x: -x.cycles):
+                i = lane.index(min(lane)); lane[i] += r.cycles
+            critical += max(lane)
         stats["batches"] += 1
         stats["batch-size-sum"] += len(batch)
         i += len(batch)
@@ -170,12 +179,21 @@ def main(argv=None):
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--max-cycles", type=int, default=0, help="cap a batch's guest cycles (0: the window only)")
     ap.add_argument("--privatize", default="", help="hex words excluded from the RAW test, comma-separated")
+    ap.add_argument("--exclude", action="append", default=[],
+                    help="hex range LO-HI excluded from the RAW test (the guest stack: a region's own frames), repeatable")
     ap.add_argument("--symbols", help="tww config/GZLE01/symbols.txt, to name addresses")
     ap.add_argument("--top", type=int, default=20)
+    ap.add_argument("--max-batch", type=int, default=0,
+                    help="regions a batch may hold (default: workers + 1); larger values model a queue over the workers, "
+                         "with the batch's time the longest lane of a greedy assignment")
     args = ap.parse_args(argv)
 
     events, regions = read_trace(args.trace)
     privatized = {int(x, 16) for x in args.privatize.split(",") if x}
+    excluded = []
+    for r in args.exclude:
+        lo, hi = r.split("-")
+        excluded.append((int(lo, 16), int(hi, 16)))
     table = load_symbols(args.symbols) if args.symbols else []
     frames = sum(1 for _, k, _ in events if k == "F")
     print(f"regions {len(regions)}, retraces {frames}, interrupts {sum(1 for _, k, _ in events if k == 'I')}, "
@@ -195,7 +213,7 @@ def main(argv=None):
 
     for workers in sorted({1, 2, 3, args.workers}):
         conflicts = Counter()
-        serial, critical, stats = simulate(events, regions, workers, args.max_cycles, privatized, conflicts)
+        serial, critical, stats = simulate(events, regions, workers, args.max_cycles, privatized, conflicts, excluded, args.max_batch)
         gain = 1 - critical / serial if serial else 0
         print(f"\nworkers {workers}: serial {serial:,} critical {critical:,} -> {100 * gain:.1f} % off the loop "
               f"time; batches {stats['batches']}, mean size {stats['batch-size-sum'] / max(1, stats['batches']):.2f}, "
