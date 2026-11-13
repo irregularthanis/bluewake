@@ -2565,7 +2565,7 @@ static bool host_direct_can_skip_stage_select(void* user, const CPUState* cpu, u
 // docs/planning/2026-11-03-parallel_guest_execution (scripts/shadow_limit_study.py
 // reads it). The two addresses are named here so the builder's watch list
 // (scripts/windows/direct_calls.py) brings the edge service to both.
-#include "shadow_trace.h"
+#include "../../../cmake/composite/shadow_trace.h"
 #define BW_SHADOW_TRACE_REGION_ENTRY 0x80040198u   // fpcLnIt_MethodCall
 #define BW_SHADOW_TRACE_REGION_RETURN 0x80244EFCu  // cNdIt_Method, after its bctrl
 static BwShadowTrace* g_shadow_trace;
