@@ -167,7 +167,7 @@ Trace mode runs every region of the execute and draw passes as a shadow on the g
 | Id | Question | Method | Stop if |
 | --- | --- | --- | --- |
 | E0 | What do two busy cores cost the game thread, per device? | `8-busiest`, headless unpaced, A/B/B/A/A/B with two spinning cores; then Game Mode through `gm-launch2.sh` with the same spinners; later a duty sweep (25/50/75 %) | Nothing: it prices the Deck's power budget (−21 % at full duty) for M10's per-device decision; the gate is E2 |
-| E1 | Shadow overhead | The shadow module in trace mode, no parallelism, same route as live | ≥ 35 % |
+| E1 | Shadow overhead | E1a: the shadow module as the live module, headless A/B/B/A/A/B against the play build of the same commit: **≈ 2–5 %, checkpoints identical**. E1b: the trace build's logging cost, same route, logging off vs on | ≥ 35 % |
 | E2 | Available exact parallelism | The limit study | < 10 % at 2 workers |
 
 ### Builds (agreed 2026-11-13)
