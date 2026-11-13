@@ -111,19 +111,24 @@ Not RAM but memory all the same: two more cores running translated code pull the
 
 ### Packaging and loading the shadow module
 
-**Added, not replaced.** When the feature is on, both modules are loaded: the main module keeps running the game thread exactly as today, and only the worker threads execute code from the shadow module. (E1a's measurement runs the shadow variant as the live module once, to price its overhead; that is a test, not the shipped arrangement.)
+**Side-loaded in addition, never a replacement.** The game module (`gGZLE01_recomp.so`) is loaded at every launch exactly as today and keeps running the game thread with every optimization. When, and only when, workers are configured, the host *also* loads a second module, the shadow module, and only the worker threads execute code from it. Both stay loaded for the whole session. (E1a's measurement runs the shadow variant as the game module once, to price its overhead; that is a test, not the shipped arrangement.)
 
-| | Main module (today) | Shadow module (proposed) |
+The launch sequence with the feature on:
+
+1. Load the game module as today (`BLUEWAKE_COMPOSITE=path`, else the module argument, else `<app dir>/gGZLE01_recomp.so`, [`linux_entry.c`](../../../linux/src/linux_entry.c)); its checks are unchanged.
+2. Because `BLUEWAKE_SHADOW_WORKERS` ≥ 1, look for the shadow module: `BLUEWAKE_SHADOW_MODULE=path`, else `<app dir>/gGZLE01_shadow.so` (bundled), else next to the AppImage (`$APPIMAGE`'s folder; on the Deck `/home/deck/gGZLE01_shadow.so` beside `BlueWake-*.AppImage`), else the data folder (`~/.local/share/BlueWake/`).
+3. Check it: ABI, CPU layout and game id as for any module, and the pair: both modules export the composite digest their build recorded (`composite-final.digest`, a new `bluewake_composite_digest()` on both) and the shadow module its `bluewake_composite_shadow_v1()`. Not found, or any mismatch: one log line, workers off, and the game runs on the game module alone as today.
+4. Load it with `dlmopen(LM_ID_NEWLM, …)` on Linux (`dlopen` of its own path elsewhere): one copy, thread-local module state, never remapped onto 2 MB pages. Start the workers.
+
+| | Game module (always loaded, unchanged) | Shadow module (loaded in addition, only with workers on) |
 | --- | --- | --- |
-| File | `gGZLE01_recomp.so` (`.dll` on Windows, `.dylib` on Apple): an ELF shared object, ≈ 412 MB, the translated game code | `gGZLE01_shadow.so` (`.dll`, `.dylib`): the same composite built with `fixed_cpu=0`, `fixed_mem1=0`, gather pipe off, `BLUEWAKE_SHADOW=1`; ≈ 400 MB; an ordinary ABI-v3 module plus the shadow exports |
-| Produced by | The player's build from their disc (`scripts/linux/build.py`), into `BlueWake/` of the build output and the AppImage | The same build with `--shadow-module`: a second CMake target over the same `composite-src` and mod variants, written beside the main module as `BlueWake/gGZLE01_shadow.so` and copied next to the published AppImage; not placed inside the AppImage unless `--shadow-bundled` |
-| Found at launch | `BLUEWAKE_COMPOSITE=path`, else the module argument, else `<app dir>/gGZLE01_recomp.so` ([`linux_entry.c`](../../../linux/src/linux_entry.c)) | Only when `BLUEWAKE_SHADOW_WORKERS` ≥ 1: `BLUEWAKE_SHADOW_MODULE=path`, else `<app dir>/gGZLE01_shadow.so` (bundled), else next to the AppImage (`$APPIMAGE`'s folder; on the Deck `/home/deck/gGZLE01_shadow.so` beside `BlueWake-*.AppImage`), else the data folder (`~/.local/share/BlueWake/`). Not found: one log line, workers off, the game runs as today |
-| Checked | ABI, CPU layout and game id ([`module_cpu_contract.h`](../../../cmake/composite/module_cpu_contract.h)) | The same, plus the pair: both modules export the composite digest their build recorded (`composite-final.digest`, a new `bluewake_composite_digest()` on both), and the shadow exports `bluewake_composite_shadow_v1()` (version, the trace/shadow state). A digest mismatch, a missing export or a foreign game id refuses the shadow module: one log line, workers off |
-| Loaded with | `dlopen(RTLD_NOW \| RTLD_LOCAL)` | `dlmopen(LM_ID_NEWLM, …)` on Linux, `dlopen` of its own path elsewhere; one copy, thread-local module state; never remapped onto 2 MB pages |
-| Cost at launch | — | Relocating ≈ 50 MB of tables: a fraction of a second, only when opted in |
-| Memory | Code on 2 MB pages (#554) | Hot code through the page cache ≈ 100–200 MB, tables ≈ 50 MB |
+| File | `gGZLE01_recomp.so` (`.dll` on Windows, `.dylib` on Apple): an ELF shared object, ≈ 412 MB, the translated game code | `gGZLE01_shadow.so` (`.dll`, `.dylib`): a second file, the same composite built with `fixed_cpu=0`, `fixed_mem1=0`, gather pipe off, `BLUEWAKE_SHADOW=1`; ≈ 400 MB; an ordinary ABI-v3 module plus the shadow exports |
+| Runs on | The game thread | The worker threads only |
+| Produced by | The player's build from their disc (`scripts/linux/build.py`), into `BlueWake/` of the build output and the AppImage, as now | The same build with `--shadow-module` added: a second CMake target over the same `composite-src` and mod variants, written beside the game module as `BlueWake/gGZLE01_shadow.so` and copied next to the published AppImage; inside the AppImage only with `--shadow-bundled` |
+| Cost at launch | As today | Relocating ≈ 50 MB of tables: a fraction of a second, only when opted in |
+| Memory | Code on 2 MB pages (#554), as today | Hot code through the page cache ≈ 100–200 MB, tables ≈ 50 MB, on top of the game module's |
 
-So, in practice: with the feature off nothing is added to the AppImage, the data folder or the launch. Opting in means building the extra `.so` once (the builder flag) and placing it beside the AppImage, then setting `BLUEWAKE_SHADOW_WORKERS=2`; the AppImage itself grows (by ≈ 150 MB compressed) only if the owner later chooses to bundle it.
+So, in practice: with the feature off nothing is added to the AppImage, the data folder or the launch. Opting in means building the extra `.so` once (the builder flag) and placing it beside the AppImage, then setting `BLUEWAKE_SHADOW_WORKERS`; the game module is untouched either way, and the AppImage itself grows (by ≈ 150 MB compressed) only if the owner later chooses to bundle the second file.
 
 ### What stays on
 
