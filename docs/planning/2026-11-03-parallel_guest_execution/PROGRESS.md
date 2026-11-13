@@ -46,7 +46,7 @@ Status: **Reopened 2026-11-13: shadow batches** (exact by construction; see the 
 - [ ] M7-T01: E0, occupied cores on the Deck: headless A/B/B/A/A/B with two spinning cores (running 2026-11-13), then Game Mode
 - [ ] M7-T02: Shadow module build: `fixed_cpu=0`, `fixed_mem1=0`, gather pipe off, `BLUEWAKE_SHADOW` memory paths (read filter, write log, alias side buffer, aborts)
 - [ ] M7-T03: E1, shadow overhead: trace mode, no parallelism, same route as live
-- [ ] M7-T04: Open questions: timer reads per region, alias share per region, `dlmopen` twice on the Deck, memfd-backed MEM1 with the fixed-MEM1 live module
+- [~] M7-T04: Open questions: timer reads (settled: creation only), takeover addresses (settled), `RTLD_LOCAL` and the `MAP_FIXED` precedent (settled); left: `dlmopen` cost on the Deck, alias share per region
 - [ ] M7-T05: Stop/go: E0 < 15 %, E1 < 35 %
 
 ### M8: Limit study (depends: M7)
@@ -71,6 +71,7 @@ Status: **Reopened 2026-11-13: shadow batches** (exact by construction; see the 
 | M7 (facts) | `main` after #554; RecompCore `Zelda.cpp`, `MailHandler.cpp`; `dsp_hle_backend.cpp:95`; `main.c` `host_cycle_deadline_distance`, `host_dsp_interrupt` | Source reading, 2026-11-13 | — | HLE DSP interrupts are raised synchronously by the guest's mailbox writes (`SendCommandAck` from `HandleMail*`); `Update()` only pushes `DSP_RESUME`; the delay argument is ignored. Deadline terms: VI event clock, DSP cadence, audio DMA, decrementer, pending. So the DSP cadence (92 % of turn ends, #530) raises no interrupts in play; main-thread landings are VI, audio DMA, decrementer, DVD |
 | M7 (facts) | tww `c_node_iter.cpp:11–24`, `c_tree_iter.cpp`, `f_pc_line_iter.cpp:27`, `c_math.cpp:167`, `J3DJoint.cpp:253` | Source reading | — | The process iterator reads `pNext` before the method and `pNext->next` after; the RNG is three static words read-modify-written per draw; `J3DDrawBuffer::entryNum++` per joint entry |
 | M7 (facts) | `scripts/windows/build.py:925`, `global_guest_cpu.py` | Source reading | — | The fixed CPU is a post-pass over the chunks (`#define ctx (&bw_guest_cpu)`), run only with `--fixed-cpu`; `--fixed-mem1` requires it. Without them the same chunks use `ctx_param` and `cpu->ram` |
+| M7-T04 | tww `f_op_actor.cpp:97`, `symbols.txt`; `main.c:7763`; `guest_cpu.c:29`; `module_hugepages.h:89` | Source reading, 2026-11-13 | — | Timebase read once per actor creation, not in execute/draw; `cNdIt_Method` at 0x80244EB4; module loaded `RTLD_LOCAL`; MEM1 page-aligned; the host already `MAP_FIXED`-remaps the module's code |
 | M0-T01 | `main` `ee991d3`, RecompCore `0fe472a`, generated source of `m437-a` | Source reading | — | Translated code bound to one global CPU and RAM; see PRD |
 | M0-T03 | `m437-a-14c558d62d1c` | `bench_tour.py --mode headless`, `BLUEWAKE_PC_SAMPLE` 2700–4200, tww `symbols.txt` | Desktop, **concurrent build running** | J3D 21.9 %, collision 14.1 %, audio 9.3 %; FPS figures invalid |
 | M0-T03 | same | `[native-*]` exit counters | same | `key-s` 77 % declined, `transform-simple` 76 %, skinning 9 % |

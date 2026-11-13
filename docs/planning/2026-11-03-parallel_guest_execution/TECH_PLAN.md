@@ -84,10 +84,13 @@ Week 1: E0, E1, the open questions. Weeks 2–3: E2. Weeks 4–8: engine, takeov
 
 ### Open questions for week 1
 
-- How often does the execute pass read the timebase? (The host observes `mfspr` timer reads; the trace counts them per region.)
-- What share of a REL actor's accesses go through the alias slow path (its side-buffer cost)?
-- `dlmopen` of the module twice on the Deck: load time and resident memory (relocated `pc_table`s ≈ 130 MB a copy).
-- Can the live module keep `--fixed-mem1` with MEM1 remapped onto a memfd at init?
+| Question | Status |
+| --- | --- |
+| How often does the execute pass read the timebase? | **Settled from source:** game code reads it in `d_timer.cpp` (the timer display), `d_s_play.cpp`, the exception and memory-card paths, and once per actor *creation* (`fopAc_ac_c` constructor, `f_op_actor.cpp:97`); `JUTGamePad` reads it in the main loop's pad read. Execute and draw regions rarely do; the trace counts the rest |
+| Takeover addresses | `cNdIt_Method` 0x80244EB4 (0x90 bytes), `fpcLnIt_MethodCall` 0x80040198, `fpcLnIt_Queue` 0x80040200, `cTrIt_Method` 0x802450D0, `cLsIt_Method` 0x80244BF0, `cM_rnd` 0x802462C8 (tww `symbols.txt`) |
+| Module copies | The host loads the module with `dlopen(RTLD_NOW \| RTLD_LOCAL)` (`main.c:7763`), so a second copy loads with `dlmopen(LM_ID_NEWLM)` or from a differently named file without symbol interposition. Load time and resident memory on the Deck: to measure |
+| MEM1 on a memfd with the fixed-MEM1 live module | `BW_GUEST_MEM1` is `aligned(4096)` (`guest_cpu.c:29`) and `bw_module_cpu_init` zeroes it, so the host can map a shared memfd over it with `MAP_FIXED` first; the host already remaps the module's code the same way for 2 MB pages (`module_hugepages.h:89`) |
+| What share of a REL actor's accesses go through the alias slow path? | To measure in the trace (its side-buffer cost) |
 
 ---
 
