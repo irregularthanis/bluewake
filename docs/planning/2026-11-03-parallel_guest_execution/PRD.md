@@ -1,9 +1,73 @@
 # PRD — Parallel guest execution
 
-Status: Draft (research; M0/M1 audit done, no code)
-Source: BlueWake `main` at `ee991d3`; RecompCore `0fe472a`; tww `9cbb155`; profiled build `m437-a-14c558d62d1c` (desktop, 2026-11-03)
-Scope: moving provably independent game-thread work onto other host cores, and widening the native paths that work needs; excluded: 60 game updates per second, speculative execution, generic actor scheduling, the GX worker
+Status: **Reopened 2026-11-13 with a different model** (shadow batches: exact by construction); the 2026-11-03/04 research below stays as the record
+Source: BlueWake `main` after #554 (busy-view numbers from #592/#593); RecompCore DSP HLE (`Source/Core/Core/HW/DSPHLE`); tww (`src/f_pc`, `src/SSystem/SComponent`, `libs/JSystem`)
+Scope: shortening the game thread's critical path at busy views by running consecutive, independent pieces of its own loops on other host cores, with the serial build's guest state reproduced exactly; excluded: 60 game updates per second, any change to guest cycle accounting or interrupt landing, concurrent guest threads
 [Technical plan](TECH_PLAN.md) · [Tracker](PROGRESS.md)
+
+## Revision 2026-11-13: the problem, restated
+
+At the busiest Outset view the game thread is 98.6 % busy at 124–129 M host cycles a game frame against ≈ 113 M for 30 FPS ([#592](https://github.com/chrissotraidis/bluewake/pull/592)). About 89 % of that is translated game code, flat (no function above 1.5 %); the draw side alone is 26 M cycles ([#593](https://github.com/chrissotraidis/bluewake/pull/593)). The serial levers are nearly spent: profile-and-trim rounds now repeat #503's list, round 7's exact natives measured −0.19 %, and the audio thread (the only separable guest thread) is 6.1 % ([#561](https://github.com/chrissotraidis/bluewake/pull/561)). What is left is the structure of the frame itself: the `fpc` process loops run a few hundred actor executes and draws one after another on one core while the Deck has three more.
+
+### Principle: exact by construction
+
+The parallel build must leave **the identical guest state, the identical device effects in the identical order, and the identical cycle charges** as the serial build at the same settings, so the existing oracle (guest checkpoints, pictures, replays) tests it unchanged. Every parallel result is either *validated* as serial-equivalent before it is committed, or discarded and re-executed serially. Nothing speculative ever touches live state. No "benign races", no host-timing-dependent interleavings, no "plays the same" concurrency: a nondeterministic build can't be tested by this project's methods, and `OSDisableInterrupts`-as-a-lock stops working the moment two guest threads really run at once.
+
+### What that rules out, and why (so it isn't re-litigated)
+
+| Route | Why it can't be exact | Evidence |
+| --- | --- | --- |
+| Running the guest audio thread beside the game thread | Its wake points are interrupt landings in the main thread's instruction stream; on another core its reads of the sound queue depend on host timing. Worth ≤ 6.5 % anyway | #561; tww `JASAudioThread.cpp` |
+| Pipelining phases (draw N beside execute N+1) | The thread that runs ahead must start at logical time T + C, and C (the other phase's cycle count) is unknown until it finishes; every VI/AI deadline would land on the wrong instruction, and the audio thread's next wake reads what execute writes | `host_cycle_deadline_distance` (`main.c`); #530: deadlines every ≈ 8,600 guest cycles |
+| Async native jobs with closed-form cycle charges (Track A) | Exact, but each region is < 1 % of a flat profile | #541 (skinning: threading ≈ +0.5–1 %), #593 (round 7) |
+
+### The model that is exact: shadow batches
+
+A **batch** is a run of regions the serial program executes back to back from one logical time T, short enough that no guest-visible interrupt lands inside it. Each region runs as a **shadow**: the same translated code, on a private CPU state, reading live memory (which nobody writes during the batch) and writing only to a private copy, counting its cycles, and aborting on anything it can't keep private (MMIO, a timer read, an exception, a watched call). At the join the engine checks that no region read what an earlier region wrote, that the batch's cycles fit before the next interrupt, and that the host's device work inside that span read nothing the batch wrote; then it commits the private writes in serial order and charges the cycles. Any failure commits the valid prefix and runs the rest serially from where it stands — the serial path, at the same logical point, with its own interrupt landings. See the [technical plan](TECH_PLAN.md#design-2026-11-13-shadow-batches).
+
+The regions come from the game's own loops: `cNdIt_Method`, the iterator behind every `fpc` execute and draw pass, reads the next process *before* it runs the current one (tww `c_node_iter.cpp`), so the next actor's execute can start on another core while the current one runs. The guest's thread structure, cadence and interrupt landings are untouched: the audio thread still runs serially at exactly its landing points.
+
+### What makes it feasible on this tree (verified 2026-11-13)
+
+| Fact | Evidence |
+| --- | --- |
+| The fixed CPU and fixed MEM1 are build switches, not the translation: `--fixed-cpu` runs `global_guest_cpu.py` over the chunks; without it `ctx` is the parameter and memory is `cpu->ram` | `scripts/windows/build.py:925`, `global_guest_cpu.py` |
+| Guest-visible interrupts in the main thread come from predictable timers: VI (event clock), audio DMA (`work_units_per_chunk`), decrementer, DVD events. The HLE DSP raises its interrupts synchronously when the guest writes its mailbox (`SendCommandAck` from `HandleMail*`); the host's 12,600-cycle DSP step raises none in play (`Update()` only pushes `DSP_RESUME`); the delay argument is ignored | `main.c` `host_cycle_deadline_distance`, `host_dsp_interrupt`; `dsp_hle_backend.cpp:95`; RecompCore `Zelda.cpp` |
+| So the window between landings in the main thread is milliseconds (VI 2 a frame, audio DMA ≈ 2, decrementer rare), not the ≈ 8,600-cycle turn: the turn ends are the DSP's polling, 92 % of them | #530's deadline census |
+| The process iterator reads `pNext` before calling the method, then `pNext->next` after | tww `c_node_iter.cpp:11–24`, `c_tree_iter.cpp`, `fpcLnIt_Queue` |
+| Known false serializers: the global RNG (`cM_rnd`: three static words, read-modify-write), `J3DDrawBuffer::entryNum++`, the JAI sound-queue tail, heap allocation. Each is a word the engine can recognise; the first two have exact privatization rules | tww `c_math.cpp:167`, `J3DJoint.cpp:253` |
+| The existing replay generators already run translated code on locals with private stores and per-block cycle charges, declining on what they can't replay — the same discipline, synchronous and per function | `native_gx_gen.py`, `native_leaf_gen.py`, #593 |
+
+### Goals and kill criteria
+
+| Stage | Question | Go if | Stop if |
+| --- | --- | --- | --- |
+| E0 (week 1) | Does occupying two more Deck cores slow the game thread (shared power)? | penalty < 8 % headless, < 12 % Game Mode | ≥ 15 % |
+| E1 (week 1) | How much slower is a shadow run than a live one (`cpu->ram`, logs)? | < 20 % | ≥ 35 % |
+| E2 (weeks 2–3) | Limit study: how much of a busy frame sits in batches that validate, at 2 workers? | ≥ 15 % of game-thread time after the known privatization rules | < 10 % |
+| M9 (weeks 4–8) | Engine + loop takeover, opt-in, differential-tested | every batch's commit equals serial re-execution in the verify build | — |
+| M10 (weeks 9–10) | Deck: ≥ 6 interleaved Game Mode launches × 8 states | ahead in every launch, identical checkpoints and pictures, power and thermals recorded | behind in any launch, or any checkpoint differs |
+
+The target is the busiest view holding 30 game frames a second. The ceiling is set by E2, not by core count: with two workers and the actor loop half independent, 15–25 % off the loop portions of the frame; with the loop mostly coupled, a few percent and the work stops at E2 with a definitive number.
+
+### Non-goals (revised)
+
+60 game updates a second; changing where interrupts land or how cycles are charged; concurrent guest threads; the audio thread; the GX worker; speculation that writes live state; any path that is not reproducible run to run.
+
+### Risks
+
+| Risk | Mitigation |
+| --- | --- |
+| The actor loop is coupled through a few global words (RNG, counters, queue tails) | E2 measures it; exact privatization rules for reductions and the RNG; the rest serializes correctly |
+| Shadow overhead on the game thread's own share | E1 measures it; the game thread takes the shortest region of a batch |
+| Deck power: three busy cores lower the clock | E0 measures it first; worker count is a setting |
+| Engine bugs commit a wrong state | Verify build: every batch also re-executed serially and compared, in CI and on the Deck; checkpoints every retrace |
+| REL actors' data lives in alias storage, not MEM1 | Shadow slow path keeps alias writes in a private side buffer; reads check it first |
+| Module memory: one shadow module copy per worker | File pages shared; relocated tables ≈ +130 MB a copy; two workers on a 16 GB Deck |
+
+---
+
+## Research record (2026-11-03 to 2026-11-04)
 
 ## Problem
 

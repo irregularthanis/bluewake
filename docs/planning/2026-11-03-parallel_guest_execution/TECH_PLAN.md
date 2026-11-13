@@ -1,8 +1,97 @@
 # TECH_PLAN — Parallel guest execution
 
-Status: Planning only
-Source: BlueWake `main` at `ee991d3`; RecompCore `0fe472a`; tww `9cbb155`
+Status: Design (2026-11-13); the 2026-11-03/04 sections below stay as the record
+Source: BlueWake `main` after #554; RecompCore DSP HLE; tww
 [PRD](PRD.md) · [Tracker](PROGRESS.md)
+
+## Design (2026-11-13): shadow batches
+
+### Vocabulary
+
+- **Live state**: the guest CPU, MEM1, the REL alias storage and the host's device state, as the serial build keeps them.
+- **Region**: one call the serial program makes from a takeover point: an actor's execute or draw, `pMethod(pNode)` inside `cNdIt_Method`.
+- **Batch**: regions R0…Rk that the serial program runs back to back from logical time T.
+- **Shadow run**: a region executed by the shadow module on a private CPU state, reading live memory and writing only a private copy, counting its cycles.
+- **Join**: the game thread has finished its own region and waits for the workers. **Commit**: private writes applied to live state in serial order. **Fallback**: the rest of the batch run through the live module, the serial path, from the current logical point.
+
+### Invariants
+
+1. During a batch nothing writes live guest memory or device state: every participant is a shadow, and the host's deadline services inside the span are deferred to the join.
+2. A shadow reads live memory and its own writes, never another shadow's.
+3. Commit order is serial order; the cycles charged are the sum of the regions' counted cycles; the host then services the deadlines that fell inside the span, in cycle order, before the guest resumes.
+4. Whatever can't be shown serial-equivalent is not committed: the valid prefix commits, the rest runs live. The live path is the serial build's, untouched.
+
+### Serial-equivalence conditions, checked at the join
+
+| Condition | Rule | Why it is sufficient |
+| --- | --- | --- |
+| C1 window | Σ cycles(R0…Rk) ≤ D(T), the distance to the next guest-visible interrupt (VI event clock, audio DMA, decrementer, pending or dirty sources), computed as [`host_cycle_deadline_distance`](../../../runtime/host/src/main.c) does without its DSP-cadence term | No interrupt would have landed inside the batch in the serial run; DSP interrupts need a guest mailbox write, which aborts a shadow (C4) |
+| C2 RAW | For i < j: reads(Rj) ∩ writes(Ri) = ∅, words; cache lines as the first filter | Rj read pre-batch values; serial Rj would have seen Ri's write |
+| C3 host services | DSP steps whose deadlines fall in [T, T+Σ) read nothing in writes(R0…Rk); the engine runs them after the commit, in order | The HLE reads guest memory (voice blocks, DAC buffers) at its step; those reads must equal the serial ones |
+| C4 replayable | No region aborted: no MMIO (except FIFO stores in the draw pass, logged), no timer read, no exception, no `mtmsr`, no call to a watched address, no direct-call depth overflow, no alias write beyond the side buffer | Everything else the shadow can't keep private or can't time |
+| C5 links | The iterator's `pNext->next` words, read early by the takeover, are not in the writes of the regions that serially precede their read | `cNdIt_Method` reads the next link after each method; the takeover reads it before |
+
+WAW is settled by commit order (the last writer wins, as in serial); WAR is settled because shadows read pre-batch values, as the earlier serial reader did. The guest stack is ordinary memory under these rules: all regions write the same range, an uninitialized read of a leftover is a real dependence and falls back, and the ordered commit leaves the serial stack image.
+
+### Privatization rules (each exact)
+
+| Rule | Words | Commit |
+| --- | --- | --- |
+| P1 reductions | A certified list (`J3DDrawBuffer::entryNum`, allocator counters found by the census) | If every access to the word in the batch is a read followed by a write of read + δ, the word leaves C2 and the engine commits Σδ |
+| P2 the RNG | `cM_rnd`'s three words, `cM_rnd2`'s three (tww `c_math.cpp:167`) | Plain, when at most one region of the batch touched them; otherwise the later region fails C2 and falls back. E2 says whether re-seeding a later region from the earlier one's final seed and re-running it on the worker is worth a stronger rule |
+| P3 the link words | C5 | Read again after the commit |
+
+### Mechanism
+
+| Part | What |
+| --- | --- |
+| **Shadow module** | The same composite built with `fixed_cpu=0` and `fixed_mem1=0` (so `ctx` is the parameter and memory is `cpu->ram`: [`global_guest_cpu.py`](../../../scripts/windows/global_guest_cpu.py) is simply not run), gather pipe off, and a shadow variant of the memory fast path in [`gather_pipe.h`](../../../cmake/composite/gather_pipe.h): loads append their line to a per-CPU read filter, stores append (address, size) to a per-CPU write log; the `_slow` paths keep alias writes in a private side buffer that alias reads consult first; MMIO and timer reads abort; FIFO stores in the draw pass go to a per-region GX log. `bw_direct_depth` thread-local; `bw_host_can_skip` answers quiet, and a watched address aborts. One module copy per worker (`dlmopen`) in v1 |
+| **Private memory** | Live MEM1 becomes a `MAP_SHARED` mapping of a memfd (mapped over the live module's `BW_GUEST_MEM1` at [`bw_module_cpu_init`](../../../cmake/composite/module_cpu_contract.h), or the live module runs with `cpu->ram` on it); each shadow CPU's `ram` is a `MAP_PRIVATE` mapping of the same memfd: reads see live pages, writes copy privately. After each batch, `madvise(MADV_DONTNEED)` on the pages the write log names resets the view |
+| **Workers** | N persistent threads (2 on the Deck by default), spinning on a dispatch word inside a frame and parked between frames; each owns a shadow CPU, a private mapping and its logs |
+| **Engine** | At a takeover point: form the batch (up to the workers available, sized against D(T) with last frame's cost per process type), dispatch, run R0 as a shadow on the game thread, join, check C1–C5 and P1–P3, commit the write logs in order and append the GX logs to the live gather pipe, charge the cycles, service the deferred deadlines, continue. On failure: commit the valid prefix, run the first invalid region live, continue iterating |
+| **Takeover** | A native entry at `cNdIt_Method` (tww `c_node_iter.cpp:11`), hooked by the existing native-entry mechanism with its body hash, engaged only when `pMethod` is `fpcLnIt_MethodCall` on `g_fpcLn_Queue`'s execute or draw pass; it is the iterator, so a fallback is just calling the method live. Declines to the translation when `BLUEWAKE_SHADOW_WORKERS` is unset or 0 |
+| **Verify build** | `BLUEWAKE_SHADOW_VERIFY=1`: after each commit the engine re-executes the batch's regions live from a saved copy of the touched state and compares memory over the union of write sets, the CPU state, the cycles and the GX bytes; any difference is a fatal report. For CI's headless routes and for the Deck during qualification |
+| **Census** | Per batch: regions, cycles, window, outcome (committed, C1…C5), per-region abort reasons, the top conflicting words named through the symbol map; printed at exit like the other censuses. It drives the P1 list |
+
+### Limit study (E2), from the same logs, single-threaded
+
+Trace mode runs every region of the execute and draw passes as a shadow on the game thread, one at a time, committing each at once, and dumps per region: the process type, cycles, read lines, write words, abort reason, and the interrupt and deadline events with their cycles. Offline, a script simulates the engine's choices per frame for a batch policy (workers, maximum cycles) and reports the parallel fraction, the failure causes and the serializing words. Three states (`8-busiest`, `6-play`, `1-outset`), 300 frames each, paced to real time so the interrupt pattern is the real one, on the Deck over SSH.
+
+### Experiments
+
+| Id | Question | Method | Stop if |
+| --- | --- | --- | --- |
+| E0 | Does occupying two more Deck cores slow the game thread? | `8-busiest`, headless unpaced, A/B/B/A/A/B with two spinning cores; then Game Mode through `gm-launch2.sh` with the same spinners | ≥ 15 % |
+| E1 | Shadow overhead | The shadow module in trace mode, no parallelism, same route as live | ≥ 35 % |
+| E2 | Available exact parallelism | The limit study | < 10 % at 2 workers |
+
+### Changes (proposed)
+
+| Status | File / symbol | Edit | Milestone |
+| --- | --- | --- | --- |
+| Proposed | `scripts/windows/build.py`, `cmake/composite/CMakeLists.txt` | A second module target, `gGZLE01_shadow.so`: same composite, no `fixed-cpu`/`fixed-mem1`, `BLUEWAKE_SHADOW=1` | M7 |
+| Proposed | `cmake/composite/gather_pipe.h`, `shadow_memory.h` (new) | Under `BLUEWAKE_SHADOW`: read filter, write log, alias side buffer, FIFO log, abort on MMIO and timers | M7 |
+| Proposed | `cmake/composite/direct_calls.h` | `bw_direct_depth` thread-local under `BLUEWAKE_SHADOW`; shadow `bw_host_can_skip` | M7 |
+| Proposed | `runtime/host/src/shadow_engine.c` (new) | Workers, private mappings, batches, validation, commit, deferred deadlines, census, verify mode | M9 |
+| Proposed | `runtime/host/src/main.c` | Load the shadow module copies; memfd-backed MEM1; `BLUEWAKE_SHADOW_WORKERS`, `_VERIFY`, `_TRACE` | M7, M9 |
+| Proposed | `scripts/windows/native_entries.py` list, `cmake/composite/native_iter.c` (new) | The `cNdIt_Method` takeover as a certified native entry | M9 |
+| Proposed | `scripts/shadow_limit_study.py` (new) | The offline simulation over trace dumps | M8 |
+| Proposed | `tests/shadow_engine_test.c` (new) | Synthetic batches: every condition's failure path, commit order, reductions, links | M9 |
+
+### Effort
+
+Week 1: E0, E1, the open questions. Weeks 2–3: E2. Weeks 4–8: engine, takeover, verify build, tests. Weeks 9–10: Deck qualification under #503's rule (≥ 6 interleaved Game Mode launches, every one ahead, identical checkpoints and pictures). About ten weeks to a go/no-go with code; the first stop point is after week 1, the decisive one after week 3.
+
+### Open questions for week 1
+
+- How often does the execute pass read the timebase? (The host observes `mfspr` timer reads; the trace counts them per region.)
+- What share of a REL actor's accesses go through the alias slow path (its side-buffer cost)?
+- `dlmopen` of the module twice on the Deck: load time and resident memory (relocated `pc_table`s ≈ 130 MB a copy).
+- Can the live module keep `--fixed-mem1` with MEM1 remapped onto a memfd at init?
+
+---
+
+## Earlier plan (2026-11-03/04)
 
 ## Inspected facts
 
