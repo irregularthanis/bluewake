@@ -1511,6 +1511,11 @@ def main():
                         help="retain gather-pipe stages and module line tables for profiler attribution (diagnostic only; requires --gather-pipe)")
     parser.add_argument("--gather-alias-cache", action="store_true",
                         help="cache gather-pipe alias-window overlap by registry generation (on by default; requires --gather-pipe)")
+    parser.add_argument("--no-fixed-cpu", action="store_true",
+                        help="leave the guest CPU state a parameter (global_guest_cpu.py not run); implies --no-fixed-mem1. "
+                             "The shadow module of docs/planning/2026-11-03-parallel_guest_execution")
+    parser.add_argument("--no-fixed-mem1", action="store_true",
+                        help="leave guest memory behind the CPU state's pointer instead of the module's fixed array")
     parser.add_argument("--no-gather-alias-cache", action="store_true",
                         help="disable the default gather-pipe alias-window cache")
     parser.add_argument("--inline-gpr", action="store_true",
@@ -1625,6 +1630,11 @@ def main():
             setattr(args, name, True)
     if args.no_gather_alias_cache:
         args.gather_alias_cache = False
+    if args.no_fixed_cpu:
+        args.fixed_cpu = False
+        args.fixed_mem1 = False
+    if args.no_fixed_mem1:
+        args.fixed_mem1 = False
     if args.no_lean_blocks:
         args.lean_blocks = False
     if args.no_lean_memory:
