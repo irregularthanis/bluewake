@@ -31,7 +31,7 @@ Status: Opened 2026-11-13 (programme; estimates, no measurements of its own yet)
 
 | Task | Commit / artifact | Command / method | Environment / input | Result |
 | --- | --- | --- | --- | --- |
-| (basis) | fork PR #9: `measure-shadow-batches/` traces and reports | B1 trace build, `shadow_limit_study.py` | Steam Deck traces, workstation study | The execute loop at actor granularity gives ≈ 1.5 % at two workers; the scene's execute is 41 % of its guest cycles (`dAttention_c::Run`, native in shipped builds); the median region is 618 cycles |
+| (basis) | fork PR #9: `measure-shadow-batches/` traces and reports | B1 trace build, `shadow_limit_study.py` | Steam Deck traces, workstation study | The execute loop at actor granularity gives ≈ 1.5 % at two workers, ≈ 4 % at best with unbounded batches over a queue (the ceiling, the same at 1–3 workers); the scene's execute is 40–43 % of its guest cycles (`dAttention_c::Run`, native in shipped builds); the median region is 618 cycles. The draw pass is not yet traced (B1c waits for the owner's OK) |
 | (basis) | #592, #593 | Named profiles, headless | Steam Deck, busiest view | Draw side 19.9–26 M cycles a frame; game thread 124–131 M; ≈ 89 % translated |
 | (basis) | #9 E0, E1a | Headless and Game Mode A/B | Steam Deck | Two busy cores: −0.65 % headless, −21 % in Game Mode at full duty; the non-fixed module 2–5 % slower, exact |
 
