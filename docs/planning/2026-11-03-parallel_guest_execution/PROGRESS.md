@@ -44,13 +44,13 @@ Status: **Reopened 2026-11-13: shadow batches** (exact by construction; see the 
 
 ### M7: Feasibility week (shadow batches)
 - [x] M7-T01: E0, occupied cores on the Deck: headless **−0.65 %**; Game Mode, six launches: **−21.3 %** (A 25.77, B 20.30 game FPS) with the GPU 18.2 → 24.4 ms, spinners at 100 % duty pinned to the two other physical cores. Not a stop (owner, 2026-11-13): the penalty is the Deck's power budget, priced per device in M10; a duty sweep (25/50/75 %) gives the Deck's curve later
-- [~] M7-T02: Builds: B2 shadow module done (second attempt; `--shadow` = the builder's `--no-fixed-cpu --no-fixed-mem1`, gather pipe left on for E1a); B1 trace build started 11:45 from the PR branch (`--shadow-trace`)
+- [x] M7-T02: Builds: B2 shadow module done (second attempt; `--shadow` = the builder's `--no-fixed-cpu --no-fixed-mem1`, gather pipe left on for E1a); B1 trace build done 13:03 (second attempt, `--shadow-trace`, from `453bc5179`): `artifacts/shadow-b1/453bc5179e77/BlueWake-shadow-b1-x86_64.AppImage`, 271 MB, exports `bluewake_composite_shadow_trace`
 - [~] M7-T03: E1a done: the shadow module as the live module costs **≈ 2–5 %** headless (A 30.48 vs B 29.79 game FPS, −2.3 % on means; −5 % on the two clean pairs, the first A launch being a warm-up outlier), guest checkpoints identical; E1b (the trace build's logging cost) comes with B1
 - [~] M7-T04: Open questions: timer reads (settled: creation only), takeover addresses (settled), `RTLD_LOCAL` and the `MAP_FIXED` precedent (settled); left: `dlmopen` cost on the Deck, alias share per region
 - [ ] M7-T05: Stop/go: E0 < 15 %, E1 < 35 %
 
 ### M8: Limit study (depends: M7)
-- [ ] M8-T01: Trace dumps: `8-busiest`, `6-play`, `1-outset`, 300 frames each, paced, on the Deck
+- [~] M8-T01: Trace dumps: `8-busiest`, `6-play`, `1-outset`, 100 game frames each, headless, paced, natives off, on the Deck (owner's OK 2026-11-13; running from 13:04, one state at a time, each trace copied back and removed from the Deck)
 - [ ] M8-T02: `scripts/shadow_limit_study.py`: parallel fraction by workers and batch size; failure causes; serializing words
 - [ ] M8-T03: Stop/go: ≥ 15 % of game-thread time in validating batches at 2 workers after P1/P2; < 10 % stops
 
