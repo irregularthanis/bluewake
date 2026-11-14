@@ -30,6 +30,7 @@ set(BLUEWAKE_HOST_SRC ${BLUEWAKE_REPO_ROOT}/runtime/host/src)
 
 option(BLUEWAKE_LINUX_DEVELOPER_TRACING "Compile BLUEWAKE_TRACE_* probes into the host" OFF)
 option(BLUEWAKE_LINUX_REGRESSION_TESTS "Build source-only Linux host regressions" OFF)
+option(BLUEWAKE_SHADOW_TRACE "Compile the shadow trace's hooks and region markers into the host (a trace build; the builder's --shadow-trace)" OFF)
 
 add_compile_options("-ffile-prefix-map=${BLUEWAKE_REPO_ROOT}/=")
 
@@ -118,7 +119,8 @@ target_compile_definitions(bluewake PRIVATE
     DOLRECOMP_CPU_HEADER="core/cpu.h"
     BLUEWAKE_ENABLE_DEVELOPER_TRACING=$<BOOL:${BLUEWAKE_LINUX_DEVELOPER_TRACING}>
     BLUEWAKE_EDGE_CENSUS=0
-    BLUEWAKE_LINUX=1)
+    BLUEWAKE_LINUX=1
+    $<$<BOOL:${BLUEWAKE_SHADOW_TRACE}>:BLUEWAKE_SHADOW_TRACE=1>)
 
 # The donor DSP (Dolphin's DSP interpreter and its high-level Zelda ucode, from
 # RecompCore) compiled from source, with only the Common services it needs
