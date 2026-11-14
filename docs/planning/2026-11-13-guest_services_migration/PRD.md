@@ -24,13 +24,13 @@ By potential gain at the busiest Outset view, largest first. "Native" is the ser
 | 5 | **Host overheads on the game thread**: the direct-call check, the dispatch loop, the GX stream's own writes | ≈ 10 % of the game thread is host code (#592) | ≈ 2–3 % more after #552/#531 | — | — | Exact by construction | Weeks each, diminishing |
 | 6 | **Z-targeting scan** (`dAttention_c::Run`) | 41 % of the execute loop's guest cycles, mostly the native actor search already (#503) | ≈ 1–2 % for the remainder | — | — | Exact | Weeks |
 
-Together: ≈ 25–30 % at the busiest view in theory, ≈ 12–18 % after overheads, the ordered parts of each subsystem and, on the Deck, the power budget. The draw side is half of it and the only item that uses cores well; it goes first.
+Together: ≈ 25–30 % at the busiest view in theory, ≈ 12–18 % after overheads, the ordered parts of each subsystem and, on the Deck, the power budget (two cores at 25 / 50 / 75 % duty cost 1.9 / 7.4 / 11.7 % of game FPS, #9's sweep of 2026-11-13). The draw side is half of it and the only item that uses cores well; it goes first.
 
 ## How the gains vary by device
 
 | Device | What applies |
 | --- | --- |
-| Steam Deck (4 cores, three in use, a shared power budget: E0 measured −21 % with two cores at full duty) | The native half of each item in full; the parallel half discounted by the power penalty at the workers' real duty; two workers at most |
+| Steam Deck (4 cores, three in use, a shared power budget: E0 measured −21 % with two cores at full duty, and the duty sweep −1.9 / −7.4 / −11.7 % at 25 / 50 / 75 %) | The native half of each item in full; the parallel half discounted by the power penalty at the workers' real duty; two workers at most |
 | Android (big.LITTLE, tighter thermals) | The native half on the big core; one worker, maybe two, on big cores only |
 | Low-end desktop (slow, uniform cores, no cap) | Everything: the best case for the parallel half, three or four lanes |
 | Apple, fast Windows desktops | Mostly headroom: these hold 30 already; the gain is render scale and the HD effects |
@@ -60,5 +60,5 @@ Parallelizing the translated program itself (settled by #9's E2); frame pipelini
 | --- | --- |
 | A subsystem's guest-visible writes are wider than its API (J3D packets, draw buffers, `j3dSys`) | The trace's write sets define the contract before design |
 | Cycle charges for a hoisted subsystem | Choose the class per service; the GX stream and pictures are the oracle for "plays the same" |
-| The Deck's power budget takes back the parallel half | Workers park between jobs; the per-device decision; E0's duty sweep |
+| The Deck's power budget takes back the parallel half | Workers park between jobs; the per-device decision; E0's duty sweep (measured 2026-11-13: two cores cost 1.9 / 7.4 / 11.7 / 21.3 % of game FPS at 25 / 50 / 75 / 100 % duty, so an item's net Deck gain is its gross gain less that curve at its duty) |
 | Months per service | Order by gain; the draw side first; each lands and pays separately |
