@@ -221,10 +221,18 @@ def main(argv=None):
     ap.add_argument("--symbols", help="tww config/GZLE01/symbols.txt, to name addresses")
     ap.add_argument("--profiles", help="tww src/f_pc/f_pc_profile_lst.cpp, to name processes")
     ap.add_argument("--top", type=int, default=20)
+    ap.add_argument("--allow-fallback", action="store_true",
+                    help="count regions with an interpreted instruction as shadowable: this module hands the "
+                         "interpreter only cache and special-register instructions (icbi, dcbst, dcbf, dcbi, "
+                         "mtspr/mfspr of SPRG, HID0, BAT, DAR, DSISR), which make no memory access, so the "
+                         "region's logged reads and writes are complete")
     ap.add_argument("--max-batch", type=int, default=0,
                     help="regions a batch may hold (default: workers + 1); larger values model a queue over the workers, "
                          "with the batch's time the longest lane of a greedy assignment")
     args = ap.parse_args(argv)
+    global ABORTING
+    if args.allow_fallback:
+        ABORTING &= ~(1 << 5)
 
     events, all_regions = read_trace(args.trace)
     profiles = load_profiles(args.profiles) if args.profiles else {}
