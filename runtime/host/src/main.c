@@ -159,6 +159,20 @@ static s64 g_painter_turn_downcount;
 #define BW_PAINTER_MAIN_STACK_LO 0x80408000u
 #define BW_PAINTER_MAIN_STACK_HI 0x8040D000u
 #define BW_PAINTER_MAX_SPAN_TURNS 50000u
+// Stage A2 (BLUEWAKE_PAINTER_WORKER=1): the painter's turns run on a worker thread while the
+// game thread waits for them, one thread active at a time: the worker takes the game-thread
+// role for the span (the same CPU state, memory, module callbacks and host services, the main
+// loop's own per-turn sequence), and hands it back with the state as it left it. Exact by
+// construction; it measures the hand-off and the cost of the painter's code and data moving
+// to another core, before the game thread continues past the painter (stage B).
+static bool g_painter_worker_on;
+static pthread_t g_painter_thread;
+static pthread_mutex_t g_painter_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_painter_cv = PTHREAD_COND_INITIALIZER;
+static int g_painter_request;          // 0 idle, 1 run the span, 2 the span is done
+static CPUState* g_painter_cpu;
+static const char* g_painter_fatal;    // a stop the worker met, for the main loop's stop_reason
+static u64 g_painter_handoffs, g_painter_handoff_ns, g_painter_worker_turns, g_painter_uncovered;
 static bool g_module336_bss_alias_installed;
 static BlueWakeRelSlot g_rel_slots[BLUEWAKE_MAX_REL_SLOTS];
 static const BlueWakeRelData* g_rel_data;
@@ -3034,6 +3048,11 @@ static void painter_job_report(void) {
     fprintf(stderr, "[painter] frames=%llu turns=%llu (%.1f a frame) guest-cycles=%.0f a frame host-ms=%.3f a frame overshoot-turns=%llu\n",
             (unsigned long long)g_painter_frames, (unsigned long long)g_painter_turns, (double)g_painter_turns / frames,
             (double)g_painter_cycles / frames, (double)g_painter_ns / frames / 1.0e6, (unsigned long long)g_painter_overshoot);
+    if (g_painter_worker_on)
+        fprintf(stderr, "[painter] worker: handoffs=%llu turns=%llu span-ms=%.3f a frame (the turns' host time above is inside it: the hand-off costs %.3f ms a frame) uncovered=%llu\n",
+                (unsigned long long)g_painter_handoffs, (unsigned long long)g_painter_worker_turns,
+                (double)g_painter_handoff_ns / frames / 1.0e6,
+                ((double)g_painter_handoff_ns - (double)g_painter_ns) / frames / 1.0e6, (unsigned long long)g_painter_uncovered);
 }
 
 static inline __attribute__((always_inline)) bool host_chassis_edge_service_with(
@@ -8228,6 +8247,8 @@ static inline void host_state_turn(CPUState* cpu, const StaticRecompModuleDesc* 
         host_state_try_save(cpu, mod, loop, retrace_boundary);
 }
 
+static void* painter_worker_main(void* arg);
+
 // The second module, set up as the game module is: the REL alias storage (the same host
 // storage, mirrored from now on), the edge service, the direct calls with the host's tables,
 // the gate and the edge filter, the native routines, the gather pipe, the mods' chunk variants
@@ -8334,11 +8355,109 @@ static void painter_job_load(const StaticRecompModuleDesc* mod, CPUState* cpu_st
     bluewake_game_options_mirror(lib2);
     g_painter_lib = lib2;
     g_painter_mod = mod2;
+    {
+        const char* worker = getenv("BLUEWAKE_PAINTER_WORKER");
+        if (worker != NULL && strcmp(worker, "1") == 0) {
+            if (pthread_create(&g_painter_thread, NULL, painter_worker_main, NULL) == 0) {
+                g_painter_worker_on = true;
+                fprintf(stderr, "[painter] worker thread: the painter's turns run there while the game thread waits\n");
+            } else {
+                fprintf(stderr, "[painter] worker thread: cannot start; the painter runs on the game thread\n");
+            }
+        }
+    }
     fprintf(stderr, "[painter] module %s: aliases mirrored %u, direct-calls=%s gate=%s gather-pipe=%s mod-chunks=%u; "
                     "the painter runs on it from its next entry (0x%08X)\n",
             path, mirrored, direct ? "on" : "off", direct && g_direct_gate_on ? "on" : "off",
             gather_mode == BLUEWAKE_GATHER_BATCH ? "batch" : gather_mode == BLUEWAKE_GATHER_DIRECT ? "direct" : "off",
             chunks, BW_PAINTER_ENTRY);
+}
+
+// One of the painter's turns on the worker: the main loop's own per-turn sequence (the state
+// service, the pad pulses and the tracing aside), the dispatch on the painter module, and the
+// exceptions handled as the main loop handles them. The first turn of a span was prepared by
+// the game thread (begin_turn, prepare_dispatch, the turn entry, the gate) before it handed
+// over, so only its dispatch runs here.
+static void painter_turn_on_worker(CPUState* cpu, bool first) {
+    if (!first) {
+        bluewake_cycle_domain_begin_turn(&g_cycle_domain, cpu);
+        bluewake_card_runtime_service_callback(cpu);
+        bluewake_card_runtime_dispatch(cpu);
+        bluewake_forest_water_dispatch(cpu, cpu->pc);
+        host_refresh_interrupt_sources(cpu);
+        if (bluewake_scheduler_interrupt_requires_host(cpu->pc, cpu->msr, dol_interrupts_external_pending(&g_interrupts))) {
+            host_delivery_safety_observe(cpu, "external");
+            deliver_external_interrupt(cpu);
+        }
+        bluewake_cycle_domain_prepare_dispatch(&g_cycle_domain, cpu);
+        bluewake_turn_entry_begin(&g_turn_entry, cpu, cpu->pc);
+        host_direct_gate_pi();
+    }
+    painter_job_turn_begin(cpu);
+    const int dispatched = g_painter_mod->dispatch(cpu, cpu->pc);
+    host_alias_rel_pc(cpu);
+    painter_job_turn_end(cpu);
+    g_painter_worker_turns++;
+    if (!dispatched) {
+        g_painter_uncovered++;
+        g_painter_active = false;
+        return;
+    }
+    if (cpu->exception == 0u)
+        return;
+    if (cpu->exception == PPC_EXC_SYSTEM_CALL) {
+        cpu->exception = 0;
+        ppc_rfi(cpu, cpu->pc);
+    } else if (cpu->exception == PPC_EXC_EXTERNAL) {
+        cpu->exception = 0;
+    } else if (cpu->exception == PPC_EXC_FP_UNAVAILABLE) {
+        const BluewakeFpuSwitchResult switch_result = bluewake_fpu_exception_deliver(cpu);
+        g_fpu_switch_counts[switch_result]++;
+        if (switch_result == BLUEWAKE_FPU_SWITCH_INVALID) {
+            g_painter_fatal = "invalid lazy FPU context";
+            g_painter_active = false;
+        }
+    } else {
+        g_painter_active = false;   // the main loop sees the exception as it would and stops
+    }
+}
+
+static void* painter_worker_main(void* arg) {
+    (void)arg;
+    for (;;) {
+        pthread_mutex_lock(&g_painter_lock);
+        while (g_painter_request != 1)
+            pthread_cond_wait(&g_painter_cv, &g_painter_lock);
+        pthread_mutex_unlock(&g_painter_lock);
+        CPUState* cpu = g_painter_cpu;
+        bool first = true;
+        while (g_painter_active) {
+            painter_turn_on_worker(cpu, first);
+            first = false;
+        }
+        pthread_mutex_lock(&g_painter_lock);
+        g_painter_request = 2;
+        pthread_cond_broadcast(&g_painter_cv);
+        pthread_mutex_unlock(&g_painter_lock);
+    }
+    return NULL;
+}
+
+// The game thread's side: hand the prepared turn to the worker and wait for the span's end.
+// The mutex and the condition carry the CPU state and the guest memory across the threads.
+static int painter_job_dispatch_on_worker(CPUState* cpu) {
+    const u64 t0 = painter_now_ns();
+    pthread_mutex_lock(&g_painter_lock);
+    g_painter_cpu = cpu;
+    g_painter_request = 1;
+    pthread_cond_broadcast(&g_painter_cv);
+    while (g_painter_request != 2)
+        pthread_cond_wait(&g_painter_cv, &g_painter_lock);
+    g_painter_request = 0;
+    pthread_mutex_unlock(&g_painter_lock);
+    g_painter_handoffs++;
+    g_painter_handoff_ns += painter_now_ns() - t0;
+    return 1;
 }
 
 int main(int argc, char** argv) {
@@ -15262,8 +15381,17 @@ int main(int argc, char** argv) {
         bluewake_turn_entry_begin(&g_turn_entry, &cpu, cpu.pc);
         host_direct_gate_pi(); // the main loop's PE commits change the PI cause
         const StaticRecompModuleDesc* const turn_mod = g_painter_active ? g_painter_mod : mod;
-        painter_job_turn_begin(&cpu);
-        int dispatched = turn_mod->dispatch(&cpu, cpu.pc);
+        int dispatched;
+        if (g_painter_active && g_painter_worker_on) {
+            dispatched = painter_job_dispatch_on_worker(&cpu);
+        } else {
+            painter_job_turn_begin(&cpu);
+            dispatched = turn_mod->dispatch(&cpu, cpu.pc);
+        }
+        if (__builtin_expect(g_painter_fatal != NULL, 0)) {
+            stop_reason = g_painter_fatal;
+            g_painter_fatal = NULL;
+        }
         if (turn_census)
             host_turn_exit_classify(&cpu, dispatched);
         if (return_census_enabled)
