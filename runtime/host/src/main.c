@@ -2623,7 +2623,11 @@ static const BwShadowTraceMarker g_shadow_trace_markers[] = {
     // The model calls (docs/planning/2026-11-13-guest_services_migration, M1-T01b): the
     // virtual calls mDoExt_modelUpdate, mDoExt_modelUpdateDL, mDoExt_modelEntry and
     // mDoExt_modelEntryDL (m_Do_ext.cpp, one chunk) make into J3DModel (another chunk),
-    // back into them; a J3DModel subclass overriding one of them is simply not seen.
+    // back into them, plus the sites that call the model directly most often (entry from
+    // mDoExt_modelDiff, the common path; calc from mDoExt_McaMorf::calc, the player's execute,
+    // daBg_Draw). Any other caller (REL actors) is still seen at the entry,
+    // and its region ends at the first edge event after the return (shadow_trace_edge). A
+    // J3DModel subclass overriding one of these is simply not seen.
     {0x802EE8C0u, 0x8000F7FCu, 'J'},  // J3DModel::calc <- mDoExt_modelUpdate
     {0x802EE874u, 0x8000F81Cu, 'J'},  // J3DModel::update <- mDoExt_modelUpdate
     {0x802EEE30u, 0x8000F838u, 'J'},  // J3DModel::viewCalc <- mDoExt_modelUpdate
@@ -2634,6 +2638,10 @@ static const BwShadowTraceMarker g_shadow_trace_markers[] = {
     {0x802EEE30u, 0x8000F960u, 'J'},  // J3DModel::viewCalc <- mDoExt_modelEntry
     {0x802EEA2Cu, 0x8000F9DCu, 'J'},  // J3DModel::entry <- mDoExt_modelEntryDL
     {0x802EEE30u, 0x8000F9F8u, 'J'},  // J3DModel::viewCalc <- mDoExt_modelEntryDL
+    {0x802EEA2Cu, 0x8000F7A8u, 'J'},  // J3DModel::entry <- mDoExt_modelDiff (the common path of the DL variants)
+    {0x802EE8C0u, 0x8001334Cu, 'J'},  // J3DModel::calc <- mDoExt_McaMorf::calc
+    {0x802EE8C0u, 0x801226CCu, 'J'},  // J3DModel::calc <- the player's execute
+    {0x802EE8C0u, 0x800D8E70u, 'J'},  // J3DModel::calc <- daBg_Draw (the room draw)
 };
 // bluewake-trace-watch-end
 #define BW_SHADOW_TRACE_MARKERS (sizeof g_shadow_trace_markers / sizeof g_shadow_trace_markers[0])
@@ -2837,6 +2845,24 @@ static void shadow_trace_leave(CPUState* cpu, const BwShadowTraceMarker* m) {
 }
 
 static inline void shadow_trace_edge(CPUState* cpu, u32 address) {
+    // A model call returns to whoever made it (mDoExt_model*, mDoExt_modelDiff, an actor's own
+    // code, REL actors), and only a few of those return sites are markers. The first edge
+    // event with the stack pointer back at or above the call's means the callee has returned
+    // (every event inside it sits below its frame): close the region there and resume the
+    // one it interrupted, late by the caller's code up to this event. A marked return site
+    // ends it exactly, through the same path.
+    if (g_shadow_trace_region.active && g_shadow_trace_region.kind == 'J' &&
+        cpu->gpr[1] >= g_shadow_trace_region.sp) {
+        const bool resume = g_shadow_trace_model_outer.active;
+        const u8 part = g_shadow_trace_model_outer.part;
+        shadow_trace_region_end(cpu);
+        if (resume) {
+            BwShadowTraceRegion next = g_shadow_trace_model_outer;
+            next.part = (u8)(part + 1u);
+            shadow_trace_region_begin(cpu, &next);
+            g_shadow_trace_model_outer.active = false;
+        }
+    }
     for (size_t i = 0; i < BW_SHADOW_TRACE_MARKERS; ++i) {
         const BwShadowTraceMarker* m = &g_shadow_trace_markers[i];
         if (address == m->entry) {
