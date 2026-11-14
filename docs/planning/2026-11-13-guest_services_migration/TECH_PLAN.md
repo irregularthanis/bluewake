@@ -60,7 +60,7 @@ flowchart LR
 ### 3. The audio thread
 
 - **Boundary:** `TAudioThread::audioproc`'s work (`Kernel::updateDac`, `TDSP_DACBuffer::updateDSP`), woken by the AI DMA and DSP interrupts (#561; #9's audio notes).
-- **Contract:** the JAI command queue in, DSP mails and guest audio state out; measured with markers at the wake points.
+- **Contract:** the JAI command queue in, DSP mails and guest audio state out; measured with markers at the wake points. **Timing (owner, 2026-11-14): preserved.** The thread's runs stay at the same guest cycles (the DSP interrupts every ≈ 480 k cycles, 17 a frame; the AI DMA cadence), its cycles land in the game thread's timeline where the serial build puts them, and its samples reach the host's output with no added latency or jitter: the host thread works ahead on a snapshot of the queue but publishes on the serial schedule.
 - **Host shape:** its own host thread, consuming a per-frame snapshot of the queue, one frame of latency at most; deterministic by construction.
 - **Exactness:** bit-exact DSP command output; the `JASChannel` natives of round 7 as building blocks.
 - **Expected:** ≈ 5 %.
