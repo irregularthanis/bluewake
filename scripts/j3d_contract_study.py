@@ -85,6 +85,7 @@ def main(argv=None):
                     help="regex of data symbols whose words are ignored (other guest threads' stacks and thread objects, written when an interrupt switches threads inside a region)")
     ap.add_argument("--window", type=int, default=3, help="frames a written word stays watched for readers")
     ap.add_argument("--top", type=int, default=20)
+    ap.add_argument("--windows", action="store_true", help="with --writers J: for each model call, the guest cycles between its end and its first reader in the same frame (the overlap a job started at the call would have), by reader class and by the loop the call runs in")
     ap.add_argument("--defer", action="store_true", help="also report the deferral hazards: lines a writer region reads that a later region of the same frame writes (what a job deferred to the frame's end must snapshot)")
     a = ap.parse_args(argv)
     table, starts = load_symbols(a.symbols)
@@ -122,19 +123,21 @@ def main(argv=None):
     scene_proc = None
     game_frame = 0; last_kind = ""   # a game frame starts at the first execute region after the draw loop
     deferred = []                   # [(idx, frame, read_lines)] of this frame's writer regions
+    first_reader = {}               # writer idx -> (reader idx, class) for the first same-frame reader
+    writer_end = {}                 # writer idx -> end cycle
     hazard_by = Counter()           # (writer label, later writer class) -> lines
     hazard_sym = Counter()          # (symbol or heap) -> lines
     hazard_lines_total = 0; read_lines_total = 0
 
     def writer_label(w_idx):
-        k, _, mark, _, nm, *_ = regions[w_idx]
+        k, _, mark, _, nm = regions[w_idx][:5]
         if k == "S":
             return name_of(table, starts, mark, offset=False) or f"{mark:08X}"
         return profiles.get(nm, str(nm))
 
     def reader_class(w_idx, r_idx):
-        wk, wpart, wmark, wproc, wname, wframe, wtag, wpass, _, _ = regions[w_idx]
-        rk, rpart, rmark, rproc, rname, rframe, rtag, rpass, _, _ = regions[r_idx]
+        wk, wpart, wmark, wproc, wname, wframe, wtag, wpass, _, _ = regions[w_idx][:10]
+        rk, rpart, rmark, rproc, rname, rframe, rtag, rpass, _, _ = regions[r_idx][:10]
         dist = rframe - wframe
         when = "same frame" if dist == 0 else ("next frame" if dist == 1 else "later")
         if wk == "J":
@@ -187,7 +190,7 @@ def main(argv=None):
         enclosing = last_kind_of_proc.get(proc, "?") if kind == "J" else ""
         if kind != "J":
             last_kind_of_proc[proc] = kind
-        regions.append((kind, part, marker, proc, name, frame, tag, pass_, end - start, enclosing))
+        regions.append((kind, part, marker, proc, name, frame, tag, pass_, end - start, enclosing, start))
         call = CALLS.get(marker, "?") if kind == "J" else ""
         cycles_by[(kind, call, enclosing)] += end - start
         count_by[(kind, call, enclosing)] += 1
@@ -225,10 +228,12 @@ def main(argv=None):
                     if w_idx == idx:
                         continue
                     who, when = reader_class(w_idx, idx)
+                    sname = name_of(table, starts, word, offset=False) or "heap"
+                    if a.windows and sname == "heap" and when == "same frame" and w_idx not in first_reader and not who.startswith("same model"):
+                        first_reader[w_idx] = (idx, who)
                     wprof = writer_label(w_idx)
                     reads_by[(wprof, who, when)] += 1
                     read_words.add((w_idx, word))
-                    sname = name_of(table, starts, word, offset=False) or "heap"
                     sym_read_by_class[(sname, who)] += 1
                     if sname == "heap" and who.startswith("other actor"):
                         heap_pairs[(wprof, profiles.get(name, str(name)), who)] += 1
@@ -269,6 +274,7 @@ def main(argv=None):
                     words.add(w)
         writer_words[idx] = len(words)
         nwritten_total += len(words)
+        writer_end[idx] = end
         if kind == "J":
             words_by_call[call] += len(words); calls_by_call[call] += 1
         for w in words:
@@ -334,6 +340,22 @@ def main(argv=None):
     print("\n== heap words written by one actor and read by another actor (writer -> reader) ==")
     for (wp, rp, who), c in heap_pairs.most_common(a.top):
         print(f"  {c:9d}  {wp:16} -> {rp:16} ({who})")
+    if a.windows:
+        print("\n== overlap windows: guest cycles from a model call's end to the first same-frame reader of a heap word it wrote (its outputs; the named scratch and the model's own later calls excluded) ==")
+        import statistics
+        for enc in ("X", "D"):
+            ws = [w for w in writer_words if regions[w][9] == enc]
+            if not ws: continue
+            none = sum(1 for w in ws if w not in first_reader)
+            print(f"  model calls inside {enc}: {len(ws)} ({len(ws) / frames:.0f} a frame); {100 * none / len(ws):.0f} % have no same-frame reader outside the model")
+            byc = defaultdict(list)
+            for w in ws:
+                if w in first_reader:
+                    r, who = first_reader[w]
+                    byc[who].append(regions[r][10] - writer_end[w])
+            for who, gaps in sorted(byc.items(), key=lambda kv: -len(kv[1])):
+                gaps.sort(); q = lambda f: gaps[min(len(gaps) - 1, int(f * len(gaps)))]
+                print(f"    first reader {who:40} {100 * len(gaps) / len(ws):5.1f} % of calls; window cycles p10 {q(0.1):9d}  p50 {q(0.5):9d}  p90 {q(0.9):9d}")
     if a.defer:
         print(f"\n== deferral hazards: of the lines the writer regions read ({read_lines_total}, {read_lines_total / frames:.0f} a frame), those a later region of the same frame writes ({hazard_lines_total}, {100 * hazard_lines_total / max(read_lines_total, 1):.2f} %) ==")
         for (wl_, who), c in hazard_by.most_common(12):
