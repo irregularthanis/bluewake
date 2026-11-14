@@ -169,7 +169,7 @@ Trace mode runs every region of the execute and draw passes as a shadow on the g
 
 | Id | Question | Method | Stop if |
 | --- | --- | --- | --- |
-| E0 | What do two busy cores cost the game thread, per device? | `8-busiest`, headless unpaced, A/B/B/A/A/B with two spinning cores; then Game Mode through `gm-launch2.sh` with the same spinners; later a duty sweep (25/50/75 %) | Nothing: it prices the Deck's power budget (−21 % at full duty) for M10's per-device decision; the gate is E2 |
+| E0 | What do two busy cores cost the game thread, per device? | `8-busiest`, headless unpaced, A/B/B/A/A/B with two spinning cores; then Game Mode through `gm-launch2.sh` with the same spinners; then the duty sweep (25/50/75 %) | Nothing: it prices the Deck's power budget (−21 % at full duty; −1.9 / −7.4 / −11.7 % at 25 / 50 / 75 % two-core duty) for M10's per-device decision; the gate is E2 |
 | E1 | Shadow overhead | E1a: the shadow module as the live module, headless A/B/B/A/A/B against the play build of the same commit: **≈ 2–5 %, checkpoints identical**. E1b: the trace build's logging cost, same route, logging off vs on | ≥ 35 % |
 | E2 | Available exact parallelism | The limit study | < 10 % at 2 workers |
 
@@ -187,6 +187,8 @@ Order: B2 first (no code change beyond the builder option), B1 as soon as the tr
 ### Power on the Deck (E0, 2026-11-13)
 
 Headless, the game thread ignores two spinning cores (−0.65 %). In Game Mode, six launches: 25.77 → 20.30 game FPS (**−21.3 %**) and the GPU's busy time 18.2 → 24.4 ms, with two spinners busy 100 % of the time pinned to the other two physical cores (an earlier unpinned pair read −10.4 %). The shared power budget is real. Consequences for the engine: workers **park** between batches (futex, not spin) and the gain must beat a penalty that scales with worker busy time; E2 reports the parallel fraction *and* the worker duty it implies. This is the worst case: full-duty occupation. Parked workers cost in proportion to their duty, which is at most the parallel fraction of the frame; the refinement is a duty sweep (spinners busy 25 %, 50 %, 75 % of the time in 1 ms bursts) to read the penalty curve the engine's expected duty lands on. The owner's decision (2026-11-13): E0 does not stop the work. The penalty is the Deck's power budget, not the design's; devices without it keep the full gain, and the setting is per device. On the Deck the bar is the gain at the workers' real duty against the penalty at that duty, from the sweep, decided in M10.
+
+**The duty sweep (2026-11-13 night; Game Mode, the busiest view, A D25 D50 D75 D75 D50 D25 A, 1,800 retraces of play each, the two spinners busy the given share of every 4 ms in one burst):** game FPS 26.24 / 25.74 / 24.31 / 23.17 at 0 / 25 / 50 / 75 % duty, **−1.9 / −7.4 / −11.7 %** (−21.3 % at full), the GPU's busy time 18.0 → 20.2 ms, the game thread 97.9 % busy throughout; paired launches agree within 0.4 FPS. The curve is gentle to a quarter of duty (≈ 0.08 % of game FPS per point) and ≈ 0.25 % per point beyond it. This is the Deck's price list for any parallel host work, #11's included: a worker pair busy a tenth of the frame costs under 1 %, half of it ≈ 7 %. For the shadow model it is moot: E2 closed the gain from above at ≈ 5–6 % of the two loops' guest cycles before any penalty.
 
 ### Changes
 
