@@ -171,6 +171,7 @@ static pthread_t g_painter_thread;
 static pthread_mutex_t g_painter_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_painter_cv = PTHREAD_COND_INITIALIZER;
 static int g_painter_request;          // 0 idle, 1 run the span, 2 the span is done
+static bool g_painter_trace;            // BLUEWAKE_PAINTER_TRACE=1: the first spans' turns to stderr
 static CPUState* g_painter_cpu;
 static const char* g_painter_fatal;    // a stop the worker met, for the main loop's stop_reason
 static u64 g_painter_handoffs, g_painter_handoff_ns, g_painter_worker_turns, g_painter_uncovered;
@@ -3021,7 +3022,7 @@ static inline void painter_job_turn_begin(const CPUState* cpu) {
     g_painter_turn_downcount = cpu->downcount;
 }
 
-static inline void painter_job_turn_end(const CPUState* cpu) {
+static inline void painter_job_turn_end(CPUState* cpu) {
     if (!g_painter_active)
         return;
     if (g_painter_pending) {
@@ -3036,7 +3037,14 @@ static inline void painter_job_turn_end(const CPUState* cpu) {
     if (ran > 0)
         g_painter_cycles += (u64)ran;
     const u32 sp = cpu->gpr[1];
-    const bool returned = sp >= g_painter_sp && sp >= BW_PAINTER_MAIN_STACK_LO && sp < BW_PAINTER_MAIN_STACK_HI;
+    // The painter's call is live while its saved return address sits in fpcM_Management's frame
+    // (cAPIGph_Painter: stwu r1, -16(r1); mflr r0; stw r0, 20(r1): the word at the entry's sp + 4);
+    // the next call fpcM_Management makes overwrites it. The stack pointer alone cannot tell:
+    // it is back at the call's only in fpcM_Management's own few instructions between calls.
+    // A turn ends at a budget, so the span may run into that next call's first turn.
+    const bool main_stack = sp >= BW_PAINTER_MAIN_STACK_LO && sp < BW_PAINTER_MAIN_STACK_HI;
+    const bool returned = main_stack &&
+                          (sp > g_painter_sp || mem_read32(cpu, g_painter_sp + 4u) != BW_PAINTER_RETURN);
     if (!returned && g_painter_span_turns < BW_PAINTER_MAX_SPAN_TURNS)
         return;
     g_painter_active = false;
@@ -8364,8 +8372,15 @@ static void painter_job_load(const StaticRecompModuleDesc* mod, CPUState* cpu_st
     g_painter_mod = mod2;
     {
         const char* worker = getenv("BLUEWAKE_PAINTER_WORKER");
+        const char* trace = getenv("BLUEWAKE_PAINTER_TRACE");
+        g_painter_trace = trace != NULL && strcmp(trace, "1") == 0;
         if (worker != NULL && strcmp(worker, "1") == 0) {
-            if (pthread_create(&g_painter_thread, NULL, painter_worker_main, NULL) == 0) {
+            pthread_attr_t attr;
+            pthread_attr_init(&attr);
+            pthread_attr_setstacksize(&attr, (size_t)64u << 20);   // the translated code's host frames, as the main thread has
+            const int created = pthread_create(&g_painter_thread, &attr, painter_worker_main, NULL);
+            pthread_attr_destroy(&attr);
+            if (created == 0) {
                 g_painter_worker_on = true;
                 fprintf(stderr, "[painter] worker thread: the painter's turns run there while the game thread waits\n");
             } else {
@@ -8437,9 +8452,21 @@ static void* painter_worker_main(void* arg) {
             pthread_cond_wait(&g_painter_cv, &g_painter_lock);
         pthread_mutex_unlock(&g_painter_lock);
         CPUState* cpu = g_painter_cpu;
+        // The host's floating-point rounding is a thread's: arm this thread's from the guest's FPSCR,
+        // as the module does for the thread that loads state (chassis_on_state_loaded).
+        ppc_fpscr_updated(cpu);
         bool first = true;
+        unsigned traced = 0u;
         while (g_painter_active) {
+            const u32 pc = cpu->pc;
+            const s64 before = cpu->downcount;
             painter_turn_on_worker(cpu, first);
+            if (g_painter_trace && g_painter_handoffs < 2u && traced < 4u) {
+                fprintf(stderr, "[painter] worker turn %u: pc=%08X -> %08X downcount %lld -> %lld budget %lld sp=%08X active=%d\n",
+                        traced, pc, cpu->pc, (long long)before, (long long)cpu->downcount, (long long)cpu->cycle_budget,
+                        cpu->gpr[1], g_painter_active ? 1 : 0);
+                traced++;
+            }
             first = false;
         }
         pthread_mutex_lock(&g_painter_lock);
@@ -8462,6 +8489,7 @@ static int painter_job_dispatch_on_worker(CPUState* cpu) {
         pthread_cond_wait(&g_painter_cv, &g_painter_lock);
     g_painter_request = 0;
     pthread_mutex_unlock(&g_painter_lock);
+    ppc_fpscr_updated(cpu);   // the guest's FPSCR may have changed on the worker: re-arm this thread's rounding
     g_painter_handoffs++;
     g_painter_handoff_ns += painter_now_ns() - t0;
     return 1;
