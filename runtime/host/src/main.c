@@ -2569,7 +2569,9 @@ static bool host_direct_can_skip_stage_select(void* user, const CPUState* cpu, u
 // dScnPly_Draw makes, back into it), 'J' a model call (J3DModel::calc, update, viewCalc
 // or entry, a virtual call one of the mDoExt_model* functions makes, back into it),
 // nested in an actor's execute or draw region, its tag the J3DModel and its pass the
-// call site. A marker must sit on a chassis boundary: a call that
+// call site, 'P' the painter (cAPIGph_Painter, back into fpcM_Management: the previous
+// frame's draw lists to GX, before the handlers and the loops; no process).
+// A marker must sit on a chassis boundary: a call that
 // crosses translated chunks (a call inside one chunk is a plain jump and never
 // reaches the edge service). A sub-phase splits the region it runs inside: the part
 // before it, the sub-phase, the part after, each written with the enclosing
@@ -2642,6 +2644,10 @@ static const BwShadowTraceMarker g_shadow_trace_markers[] = {
     {0x802EE8C0u, 0x8001334Cu, 'J'},  // J3DModel::calc <- mDoExt_McaMorf::calc
     {0x802EE8C0u, 0x801226CCu, 'J'},  // J3DModel::calc <- the player's execute
     {0x802EE8C0u, 0x800D8E70u, 'J'},  // J3DModel::calc <- daBg_Draw (the room draw)
+    // The painter: cAPIGph_Painter (mDoGph_Painter: the previous frame's draw lists to GX),
+    // the first thing fpcM_Management does, before the handlers and the loops. A top-level
+    // region with no process: tag, proc, pass and name are 0.
+    {0x8024135Cu, 0x8003ECB4u, 'P'},  // cAPIGph_Painter <- fpcM_Management
 };
 // bluewake-trace-watch-end
 #define BW_SHADOW_TRACE_MARKERS (sizeof g_shadow_trace_markers / sizeof g_shadow_trace_markers[0])
@@ -2802,6 +2808,16 @@ static void shadow_trace_enter(CPUState* cpu, const BwShadowTraceMarker* m) {
     next.kind = m->kind;
     next.marker = m->entry;
     next.sp = cpu->gpr[1];
+    if (m->kind == 'P') {
+        // The painter: no process behind it; it ends at its marked return into
+        // fpcM_Management, or at the first edge event with the stack back at the call's.
+        next.tag = 0u;
+        next.proc = 0u;
+        next.pass = 0u;
+        next.name = 0u;
+        shadow_trace_region_begin(cpu, &next);
+        return;
+    }
     if (m->kind == 'X') {
         next.tag = r3;
         next.proc = mem_read32(cpu, r3 + 0x0Cu);   // create_tag_class::mpTagData
@@ -2851,9 +2867,10 @@ static inline void shadow_trace_edge(CPUState* cpu, u32 address) {
     // (every event inside it sits below its frame): close the region there and resume the
     // one it interrupted, late by the caller's code up to this event. A marked return site
     // ends it exactly, through the same path.
-    if (g_shadow_trace_region.active && g_shadow_trace_region.kind == 'J' &&
+    if (g_shadow_trace_region.active &&
+        (g_shadow_trace_region.kind == 'J' || g_shadow_trace_region.kind == 'P') &&
         cpu->gpr[1] >= g_shadow_trace_region.sp) {
-        const bool resume = g_shadow_trace_model_outer.active;
+        const bool resume = g_shadow_trace_region.kind == 'J' && g_shadow_trace_model_outer.active;
         const u8 part = g_shadow_trace_model_outer.part;
         shadow_trace_region_end(cpu);
         if (resume) {

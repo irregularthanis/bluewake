@@ -19,8 +19,8 @@
 #include <string.h>
 
 enum {
-    BW_TRACE_READS = 1u << 16,
-    BW_TRACE_WRITES = 1u << 17,
+    BW_TRACE_READS = 1u << 18,    /* the painter reads every packet, matrix and display list of a frame */
+    BW_TRACE_WRITES = 1u << 18,
     BW_TRACE_FILTER = 1u << 10,
     BW_TRACE_FLAG_READ_OVERFLOW = 1u << 0,
     BW_TRACE_FLAG_WRITE_OVERFLOW = 1u << 1,
