@@ -199,6 +199,29 @@ void bluewake_game_options_enable(void* lib, CPUState* cpu, bool mod_enabled) {
     fprintf(stderr, "[options] %s (%u values written)\n", list[0] ? list : "none", written);
 }
 
+// A second module's option flags and native hook, as the first module's: the flags copied
+// from the values bluewake_game_options_enable settled, the hook the same host function.
+// The writes to guest memory are the first module's, done once.
+void bluewake_game_options_mirror(void* lib) {
+    typedef volatile unsigned char* (*FlagsFn)(void);
+    typedef void (*SetHookFn)(NativeHookFn);
+    typedef u32 (*CountFn)(void);
+    FlagsFn flags = (FlagsFn)dlsym(lib, "bluewake_composite_option_flags");
+    SetHookFn set_hook = (SetHookFn)dlsym(lib, "bluewake_composite_set_native_hook");
+    CountFn count = (CountFn)dlsym(lib, "bluewake_composite_option_count");
+    OptionFn option = (OptionFn)dlsym(lib, "bluewake_composite_option");
+    const u32 options = count ? count() : 0u;
+    if (flags == NULL || set_hook == NULL || option == NULL || options == 0u || g_flags == NULL || g_option == NULL)
+        return;
+    volatile unsigned char* flags2 = flags();
+    for (u32 i = 0; i < options; ++i) {
+        u32 index = 0u, default_on = 0u;
+        (void)option(i, &index, &default_on, NULL);
+        flags2[index] = g_flags[index];
+    }
+    set_hook(native_hook);
+}
+
 bool bluewake_game_options_invert_camera_x(void) { return option_on(g_invert_camera_x); }
 
 const char* bluewake_game_options_describe(u32 position, const char** title, bool* default_on, bool* on) {

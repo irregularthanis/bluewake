@@ -17,6 +17,7 @@
 
 // At boot, after the mods are enabled and before the first dispatch.
 void bluewake_game_options_enable(void* lib, CPUState* cpu, bool mod_enabled);
+void bluewake_game_options_mirror(void* lib);
 // Once per retrace.
 void bluewake_game_options_retrace(CPUState* cpu);
 // A save state was loaded: instant text looks for the messages again

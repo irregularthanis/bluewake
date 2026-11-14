@@ -135,6 +135,30 @@ static u32 g_rel_alias_raw_min = ~0u;
 static u32 g_rel_alias_raw_max;
 static u32 g_module1_raw_base;
 static GuestAliasAddSharedFn g_module_alias_add_shared;
+
+// The painter job, stage A (docs/planning/2026-11-13-guest_services_migration, M1-T03).
+// BLUEWAKE_PAINTER_MODULE=path names a second game module, built without the fixed CPU
+// and MEM1 (--no-fixed-cpu), on which the painter runs: cAPIGph_Painter (0x8024135C), the
+// previous frame's draw lists to GX, back into fpcM_Management at 0x8003ECB4. The painter's
+// entry is an edge in a trace build (the address is watched there); the turn ends at it and
+// the main loop dispatches the second module, on the same CPU state and the same memory,
+// until the painter has returned (the stack pointer back at the call's, in the main thread's
+// stack), then the game module again. Exact by construction: the same translation, the same
+// state, one thread; it measures the machinery two modules and a switch cost before the
+// painter runs on a worker (stage A2) and overlaps the execute loop (stage B).
+static void* g_painter_lib;
+static const StaticRecompModuleDesc* g_painter_mod;
+static GuestAliasAddSharedFn g_painter_alias_add_shared;
+static bool g_painter_active;
+static u32 g_painter_sp;
+static u64 g_painter_frames, g_painter_turns, g_painter_cycles, g_painter_ns, g_painter_overshoot,
+           g_painter_span_turns, g_painter_turn_ns;
+static s64 g_painter_turn_downcount;
+#define BW_PAINTER_ENTRY 0x8024135Cu
+#define BW_PAINTER_RETURN 0x8003ECB4u
+#define BW_PAINTER_MAIN_STACK_LO 0x80408000u
+#define BW_PAINTER_MAIN_STACK_HI 0x8040D000u
+#define BW_PAINTER_MAX_SPAN_TURNS 50000u
 static bool g_module336_bss_alias_installed;
 static BlueWakeRelSlot g_rel_slots[BLUEWAKE_MAX_REL_SLOTS];
 static const BlueWakeRelData* g_rel_data;
@@ -182,6 +206,8 @@ static bool host_add_shared_guest_alias(u32 linked_start, u32 size,
     if (!added)
         return false;
     if (g_module_alias_add_shared(linked_start, size, storage)) {
+        if (g_painter_alias_add_shared != NULL)
+            (void)g_painter_alias_add_shared(linked_start, size, storage);  // the painter module sees the same storage
         if (g_state_alias_count < HOST_STATE_MAX_ALIASES)
             g_state_aliases[g_state_alias_count++] =
                 (HostStateAlias){linked_start, size};
@@ -2948,6 +2974,68 @@ static inline void shadow_trace_edge(CPUState* cpu, u32 address) { (void)cpu; (v
 static inline void shadow_trace_start(void* lib, const CPUState* cpu) { (void)lib; (void)cpu; }
 #endif
 
+static inline u64 painter_now_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (u64)ts.tv_sec * 1000000000ull + (u64)ts.tv_nsec;
+}
+
+// At an edge: the painter's entry hands the turn back to the host, whose next turns run on
+// the painter module. The turn ends with pc at the entry, which the second module dispatches.
+static inline bool painter_job_edge(CPUState* cpu, u32 address) {
+    if (g_painter_active || address != BW_PAINTER_ENTRY)
+        return false;
+    g_painter_active = true;
+    g_painter_sp = cpu->gpr[1];
+    g_painter_span_turns = 0u;
+    g_painter_frames++;
+    cpu->pc = address;
+    return true;
+}
+
+// Around a turn's dispatch while the painter runs on its module: the host time and the guest
+// cycles of the span, and its end - the stack pointer back at the call's, in the main thread's
+// stack (the audio and idle threads run on their own stacks), which hands the next turn to the
+// game module. A turn ends at a budget, not at the painter's return (the second module's
+// return into fpcM_Management is a direct one, not an edge), so the span may run a turn long.
+static inline void painter_job_turn_begin(const CPUState* cpu) {
+    if (!g_painter_active)
+        return;
+    g_painter_turn_ns = painter_now_ns();
+    g_painter_turn_downcount = cpu->downcount;
+}
+
+static inline void painter_job_turn_end(const CPUState* cpu) {
+    if (!g_painter_active)
+        return;
+    g_painter_turns++;
+    g_painter_span_turns++;
+    g_painter_ns += painter_now_ns() - g_painter_turn_ns;
+    const s64 ran = g_painter_turn_downcount - cpu->downcount;
+    if (ran > 0)
+        g_painter_cycles += (u64)ran;
+    const u32 sp = cpu->gpr[1];
+    const bool returned = sp >= g_painter_sp && sp >= BW_PAINTER_MAIN_STACK_LO && sp < BW_PAINTER_MAIN_STACK_HI;
+    if (!returned && g_painter_span_turns < BW_PAINTER_MAX_SPAN_TURNS)
+        return;
+    g_painter_active = false;
+    if (cpu->pc != BW_PAINTER_RETURN)
+        g_painter_overshoot++;
+    if (g_painter_frames <= 3u || !returned)
+        fprintf(stderr, "[painter] frame %llu: %s at pc=%08X sp=%08X (entry sp %08X) after %llu turns\n",
+                (unsigned long long)g_painter_frames, returned ? "returned" : "span limit reached",
+                cpu->pc, sp, g_painter_sp, (unsigned long long)g_painter_span_turns);
+}
+
+static void painter_job_report(void) {
+    if (g_painter_mod == NULL)
+        return;
+    const double frames = g_painter_frames > 0u ? (double)g_painter_frames : 1.0;
+    fprintf(stderr, "[painter] frames=%llu turns=%llu (%.1f a frame) guest-cycles=%.0f a frame host-ms=%.3f a frame overshoot-turns=%llu\n",
+            (unsigned long long)g_painter_frames, (unsigned long long)g_painter_turns, (double)g_painter_turns / frames,
+            (double)g_painter_cycles / frames, (double)g_painter_ns / frames / 1.0e6, (unsigned long long)g_painter_overshoot);
+}
+
 static inline __attribute__((always_inline)) bool host_chassis_edge_service_with(
     void* user, CPUState* cpu, u32 address, bool stage_select) {
 #if BLUEWAKE_ENABLE_DEVELOPER_TRACING
@@ -2971,6 +3059,8 @@ static inline __attribute__((always_inline)) bool host_chassis_edge_service_with
     }
     if (BW_SHADOW_TRACE_ACTIVE)
         shadow_trace_edge(cpu, address);
+    if (__builtin_expect(g_painter_mod != NULL, 0) && painter_job_edge(cpu, address))
+        return true;
     if (host_chassis_requires_full(cpu, address))
         return host_chassis_edge_service_full(user, cpu, address);
     if (address == BW_SEARCH_JUDGE_FILTER && g_actor_search_native)
@@ -8138,6 +8228,119 @@ static inline void host_state_turn(CPUState* cpu, const StaticRecompModuleDesc* 
         host_state_try_save(cpu, mod, loop, retrace_boundary);
 }
 
+// The second module, set up as the game module is: the REL alias storage (the same host
+// storage, mirrored from now on), the edge service, the direct calls with the host's tables,
+// the gate and the edge filter, the native routines, the gather pipe, the mods' chunk variants
+// and the options' flags. Its guest-memory writes (mods, options) are the game module's, done
+// once. The CPU state and MEM1 are the game module's: the second module takes the pointer.
+static void painter_job_load(const StaticRecompModuleDesc* mod, CPUState* cpu_state,
+                             CanSkipObservationFn skip_observation) {
+    const char* path = getenv("BLUEWAKE_PAINTER_MODULE");
+    if (path == NULL || path[0] == '\0')
+        return;
+    void* lib2 = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+    if (lib2 == NULL) {
+        fprintf(stderr, "[painter] cannot load %s: %s; off\n", path, dlerror());
+        return;
+    }
+    GetModuleFn get_module = (GetModuleFn)dlsym(lib2, "staticrecomp_get_module");
+    const StaticRecompModuleDesc* mod2 = get_module != NULL ? get_module() : NULL;
+    const char* why = NULL;
+    if (mod2 == NULL || mod2->dispatch == NULL)
+        why = "no module descriptor";
+    else if (mod2->abi_version != STATICRECOMP_ABI_VERSION || dlsym(lib2, "bluewake_composite_guest_cpu") != NULL)
+        why = "the module has a fixed CPU or MEM1 (build it with --no-fixed-cpu)";
+    else if (mod2->cpu_abi_version != mod->cpu_abi_version || mod2->cpu_state_size != mod->cpu_state_size)
+        why = "CPU layout mismatch";
+    else if (memcmp(mod2->game_id, mod->game_id, sizeof mod2->game_id) != 0)
+        why = "another game";
+    GuestAliasClearFn alias_clear = (GuestAliasClearFn)dlsym(lib2, "ppc_guest_alias_clear");
+    GuestAliasAddSharedFn alias_add = (GuestAliasAddSharedFn)dlsym(lib2, "ppc_guest_alias_add_shared");
+    if (why == NULL && (alias_clear == NULL || alias_add == NULL))
+        why = "the module lacks the guest-data alias ABI";
+    if (why != NULL) {
+        fprintf(stderr, "[painter] %s: %s; off\n", path, why);
+        dlclose(lib2);
+        return;
+    }
+    alias_clear();
+    u32 mirrored = 0u;
+    for (u32 i = 0; i < g_state_alias_count; ++i) {
+        u8* storage = NULL;
+        pthread_mutex_lock(&g_guest_alias_lock);
+        const bool have = ppc_guest_alias_get_storage(g_state_aliases[i].linked_start, g_state_aliases[i].size, &storage);
+        pthread_mutex_unlock(&g_guest_alias_lock);
+        if (have && storage != NULL && alias_add(g_state_aliases[i].linked_start, g_state_aliases[i].size, storage))
+            mirrored++;
+    }
+    g_painter_alias_add_shared = alias_add;
+    SetEdgeServiceFn set_edge_service = (SetEdgeServiceFn)dlsym(lib2, "bluewake_set_edge_service");
+    if (set_edge_service != NULL)
+        set_edge_service(bluewake_stage_select_live ? host_chassis_edge_service_stage_select
+                                                    : host_chassis_edge_service, cpu_state);
+    bool direct = false;
+    {
+        typedef bool (*CanSkipFn)(void*, const CPUState*, u32);
+        typedef int (*DirectCallsV4Fn)(bool, const bool*, const bool*, const u32*,
+                                       const u32*, CanSkipFn, void*, const BwHostSkipFastV4*, bool);
+        DirectCallsV4Fn direct_calls_v4 = (DirectCallsV4Fn)dlsym(lib2, "bluewake_composite_direct_calls_v4");
+        const bool want = host_feature_wanted("BLUEWAKE_DIRECT_CALLS") &&
+                          getenv("BLUEWAKE_PER_BLOCK_TURNS") == NULL && set_edge_service != NULL;
+        if (direct_calls_v4 != NULL && g_skip_fast_on)
+            direct = direct_calls_v4(want, &g_interrupt_sources_dirty, &g_guest_decrementer_pending,
+                                     &g_interrupts.pi_cause, &g_interrupts.pi_mask,
+                                     bluewake_stage_select_live ? host_direct_can_skip_stage_select
+                                                                : host_direct_can_skip,
+                                     NULL, &g_skip_fast, g_skip_verify) != 0;
+        typedef int (*DirectGateFn)(const volatile u32*);
+        DirectGateFn direct_gate = (DirectGateFn)dlsym(lib2, "bluewake_composite_direct_gate");
+        if (direct && direct_gate != NULL)
+            (void)direct_gate(g_direct_gate_on ? &g_direct_gate.word : NULL);
+        typedef int (*EdgeFilterFn)(bool);
+        EdgeFilterFn edge_filter = (EdgeFilterFn)dlsym(lib2, "bluewake_composite_edge_filter");
+        if (edge_filter != NULL)
+            edge_filter(direct);
+    }
+    {
+        typedef int (*NativeFn)(bool, bool (*)(void*, const CPUState*, u32), void*);
+        static const struct { const char* symbol; const char* env; } natives[] = {
+            {"bluewake_composite_native_j3d_v1", "BLUEWAKE_NATIVE_J3D"},
+            {"bluewake_composite_native_game_math_v1", "BLUEWAKE_NATIVE_GAME_MATH"},
+            {"bluewake_composite_native_skin_v1", "BLUEWAKE_NATIVE_SKIN"},
+            {"bluewake_composite_native_vec_v1", "BLUEWAKE_NATIVE_VEC"},
+            {"bluewake_composite_native_math_v1", "BLUEWAKE_NATIVE_MATH"},
+        };
+        for (size_t i = 0; i < sizeof natives / sizeof natives[0]; ++i) {
+            NativeFn native = (NativeFn)dlsym(lib2, natives[i].symbol);
+            if (native != NULL)
+                (void)native(host_feature_wanted(natives[i].env), skip_observation, NULL);
+        }
+    }
+    const BluewakeGatherMode gather_mode = bluewake_gather_pipe_configure(
+        (BluewakeSetGatherWord)dlsym(lib2, "bluewake_composite_set_gather_pipe"),
+        (BluewakeSetGatherBytes)dlsym(lib2, "bluewake_composite_set_gather_pipe_bytes"),
+        dol_platform_gx_write,
+        dol_platform_gx_write_bytes_available() ? dol_platform_gx_write_bytes : NULL,
+        host_feature_wanted("BLUEWAKE_GATHER_PIPE") ? "1" : "0",
+        bluewake_gather_pipe_batch_option(getenv("BLUEWAKE_GATHER_PIPE_BATCH")),
+        g_gx_fifo_trace || BLUEWAKE_EDGE_CENSUS);
+    u32 chunks = 0u;
+    {
+        typedef u32 (*ApplyFn)(u32);
+        ApplyFn apply = (ApplyFn)dlsym(lib2, "bluewake_composite_apply_mods");
+        if (g_mod_mask != 0u && apply != NULL)
+            chunks = apply(g_mod_mask);
+    }
+    bluewake_game_options_mirror(lib2);
+    g_painter_lib = lib2;
+    g_painter_mod = mod2;
+    fprintf(stderr, "[painter] module %s: aliases mirrored %u, direct-calls=%s gate=%s gather-pipe=%s mod-chunks=%u; "
+                    "the painter runs on it from its next entry (0x%08X)\n",
+            path, mirrored, direct ? "on" : "off", direct && g_direct_gate_on ? "on" : "off",
+            gather_mode == BLUEWAKE_GATHER_BATCH ? "batch" : gather_mode == BLUEWAKE_GATHER_DIRECT ? "direct" : "off",
+            chunks, BW_PAINTER_ENTRY);
+}
+
 int main(int argc, char** argv) {
     // The options menu's saved choices, before anything reads the environment.
     bluewake_settings_load();
@@ -9246,6 +9449,7 @@ int main(int argc, char** argv) {
             gather_mode == BLUEWAKE_GATHER_DIRECT ? "direct" : "off");
     host_mods_enable(lib, &cpu);
     bluewake_game_options_enable(lib, &cpu, g_options_mod);
+    painter_job_load(mod, &cpu, skip_observation);
     host_boot_writes_mark_options(lib);
     bluewake_forest_water_set_ftree_text(
         host_rel_section_linked_start(mod, 317u, 1u));
@@ -15057,7 +15261,9 @@ int main(int argc, char** argv) {
         }
         bluewake_turn_entry_begin(&g_turn_entry, &cpu, cpu.pc);
         host_direct_gate_pi(); // the main loop's PE commits change the PI cause
-        int dispatched = mod->dispatch(&cpu, cpu.pc);
+        const StaticRecompModuleDesc* const turn_mod = g_painter_active ? g_painter_mod : mod;
+        painter_job_turn_begin(&cpu);
+        int dispatched = turn_mod->dispatch(&cpu, cpu.pc);
         if (turn_census)
             host_turn_exit_classify(&cpu, dispatched);
         if (return_census_enabled)
@@ -15111,6 +15317,7 @@ int main(int argc, char** argv) {
             bg_phase_trace_reports++;
         }
         host_alias_rel_pc(&cpu);
+        painter_job_turn_end(&cpu);
         if (g_runqueue_trace &&
             late_worker_message_trace_reports < 48u &&
             blocks >= 31000000ull && dispatch_input_pc == 0x802B45ACu) {
@@ -16996,6 +17203,7 @@ int main(int argc, char** argv) {
             fprintf(stderr, "[trace] %lluM blocks pc=%#010x\n", blocks / 1000000ull, cpu.pc);
     }
 
+    painter_job_report();
     printf("[run] stopped: %s after %llu blocks at pc=%#010x\n",
            stop_reason ? stop_reason : "normal", blocks, cpu.pc);
     if (getenv("BLUEWAKE_TRACE_ALIAS_COST") != NULL) {
