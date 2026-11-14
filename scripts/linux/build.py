@@ -551,6 +551,7 @@ int main(void) {{
             "cmake", "-S", ROOT / "linux", "-B", self.app_build, "-G", "Ninja",
             "-DCMAKE_C_COMPILER=clang", "-DCMAKE_CXX_COMPILER=clang++",
             "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF",
+            f"-DBLUEWAKE_SHADOW_TRACE={'ON' if getattr(self.args, 'shadow_trace', False) else 'OFF'}",
             f"-DCMAKE_C_FLAGS=-march={self.args.march} -g",
             f"-DCMAKE_CXX_FLAGS={cxx_flags}", *runtime,
             "-DAURORA_SDL3_PROVIDER=vendor", "-DAURORA_SDL3_LINKAGE=static"])

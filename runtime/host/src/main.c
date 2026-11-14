@@ -2566,14 +2566,23 @@ static bool host_direct_can_skip_stage_select(void* user, const CPUState* cpu, u
 // lands on, with a kind: 'X' one process's execute (fpcLnIt_MethodCall, back
 // into cNdIt_Method), 'D' one process's draw (fpcM_Draw, back into its caller),
 // 'S' a sub-phase of the scene's execute or draw (a call dScnPly_Execute or
-// dScnPly_Draw makes, back into it). A marker must sit on a chassis boundary: a call that
+// dScnPly_Draw makes, back into it), 'J' a model call (J3DModel::calc, update, viewCalc
+// or entry, a virtual call one of the mDoExt_model* functions makes, back into it),
+// nested in an actor's execute or draw region, its tag the J3DModel and its pass the
+// call site. A marker must sit on a chassis boundary: a call that
 // crosses translated chunks (a call inside one chunk is a plain jump and never
 // reaches the edge service). A sub-phase splits the region it runs inside: the part
 // before it, the sub-phase, the part after, each written with the enclosing
 // process. The addresses are named here so the builder's watch list
 // (scripts/windows/direct_calls.py) brings the edge service to all of them, in
 // a trace build only (BLUEWAKE_SHADOW_TRACE=1 in the builder's environment);
-// every other build keeps its direct calls at these sites.
+// every other build keeps its direct calls at these sites. The hooks, the state and
+// the markers are compiled only when the host is built with BLUEWAKE_SHADOW_TRACE
+// (the builder's --shadow-trace sets it for the app as for the module): compiled in
+// and gated at run time they cost about 1 % of game FPS at the busiest view
+// (docs/planning/2026-11-03-parallel_guest_execution, M8-T08), so an ordinary
+// build's host is free of them.
+#if defined(BLUEWAKE_SHADOW_TRACE)
 // bluewake-trace-watch-begin
 #include "../../../cmake/composite/shadow_trace.h"
 typedef struct BwShadowTraceMarker { u32 entry, ret; char kind; } BwShadowTraceMarker;
@@ -2611,6 +2620,20 @@ static const BwShadowTraceMarker g_shadow_trace_markers[] = {
     {0x800529B8u, 0x80235060u, 'S'},  // dComIfG_play_c::executeEvtManager
     {0x8009F1D4u, 0x80235078u, 'S'},  // dAttention_c::Run
     {0x8009C0F8u, 0x8023509Cu, 'S'},  // dDetect_c::proc
+    // The model calls (docs/planning/2026-11-13-guest_services_migration, M1-T01b): the
+    // virtual calls mDoExt_modelUpdate, mDoExt_modelUpdateDL, mDoExt_modelEntry and
+    // mDoExt_modelEntryDL (m_Do_ext.cpp, one chunk) make into J3DModel (another chunk),
+    // back into them; a J3DModel subclass overriding one of them is simply not seen.
+    {0x802EE8C0u, 0x8000F7FCu, 'J'},  // J3DModel::calc <- mDoExt_modelUpdate
+    {0x802EE874u, 0x8000F81Cu, 'J'},  // J3DModel::update <- mDoExt_modelUpdate
+    {0x802EEE30u, 0x8000F838u, 'J'},  // J3DModel::viewCalc <- mDoExt_modelUpdate
+    {0x802EE8C0u, 0x8000F88Cu, 'J'},  // J3DModel::calc <- mDoExt_modelUpdateDL
+    {0x802EE874u, 0x8000F8C8u, 'J'},  // J3DModel::update <- mDoExt_modelUpdateDL
+    {0x802EEE30u, 0x8000F8E4u, 'J'},  // J3DModel::viewCalc <- mDoExt_modelUpdateDL
+    {0x802EEA2Cu, 0x8000F944u, 'J'},  // J3DModel::entry <- mDoExt_modelEntry
+    {0x802EEE30u, 0x8000F960u, 'J'},  // J3DModel::viewCalc <- mDoExt_modelEntry
+    {0x802EEA2Cu, 0x8000F9DCu, 'J'},  // J3DModel::entry <- mDoExt_modelEntryDL
+    {0x802EEE30u, 0x8000F9F8u, 'J'},  // J3DModel::viewCalc <- mDoExt_modelEntryDL
 };
 // bluewake-trace-watch-end
 #define BW_SHADOW_TRACE_MARKERS (sizeof g_shadow_trace_markers / sizeof g_shadow_trace_markers[0])
@@ -2628,6 +2651,7 @@ static FILE* g_shadow_trace_file;
 static u64 g_shadow_trace_from, g_shadow_trace_to;
 static BwShadowTraceRegion g_shadow_trace_region;   // the region being logged
 static BwShadowTraceRegion g_shadow_trace_outer;    // the region a sub-phase interrupted
+static BwShadowTraceRegion g_shadow_trace_model_outer;  // the execute or draw region a model call interrupted
 static unsigned long long g_shadow_trace_regions, g_shadow_trace_truncated;
 
 static inline bool shadow_trace_window(void) {
@@ -2734,6 +2758,25 @@ static void shadow_trace_enter(CPUState* cpu, const BwShadowTraceMarker* m) {
         shadow_trace_region_begin(cpu, &next);
         return;
     }
+    if (m->kind == 'J') {
+        // A model call: inside an actor's (or the scene's) execute or draw region, one
+        // level only; it keeps that process. Its tag is the J3DModel (r3), its pass the
+        // call site (the return address), which names the mDoExt_model* function.
+        if (!g_shadow_trace_region.active || g_shadow_trace_region.kind == 'S' ||
+            g_shadow_trace_region.kind == 'J' || g_shadow_trace_model_outer.active)
+            return;
+        g_shadow_trace_model_outer = g_shadow_trace_region;
+        shadow_trace_region_end(cpu);
+        next = g_shadow_trace_model_outer;
+        next.kind = 'J';
+        next.part = 0;
+        next.marker = m->entry;
+        next.sp = cpu->gpr[1];
+        next.tag = cpu->gpr[3];
+        next.pass = (u32)cpu->lr;
+        shadow_trace_region_begin(cpu, &next);
+        return;
+    }
     bool nested = false;
     if (g_shadow_trace_region.active) {
         // A process's draw inside the scene's draw loop: the scene's draw resumes
@@ -2746,6 +2789,7 @@ static void shadow_trace_enter(CPUState* cpu, const BwShadowTraceMarker* m) {
     }
     if (!nested)
         g_shadow_trace_outer.active = false;
+    g_shadow_trace_model_outer.active = false;   // a new process region: an interrupted model call is abandoned
     const u32 r3 = cpu->gpr[3];
     next.kind = m->kind;
     next.marker = m->entry;
@@ -2767,6 +2811,18 @@ static void shadow_trace_leave(CPUState* cpu, const BwShadowTraceMarker* m) {
     if (!g_shadow_trace_region.active || g_shadow_trace_region.marker != m->entry ||
         cpu->gpr[1] != g_shadow_trace_region.sp)
         return;
+    if (g_shadow_trace_region.kind == 'J') {
+        const bool resume = g_shadow_trace_model_outer.active;
+        const u8 part = g_shadow_trace_model_outer.part;
+        shadow_trace_region_end(cpu);
+        if (resume) {
+            BwShadowTraceRegion next = g_shadow_trace_model_outer;
+            next.part = (u8)(part + 1u);
+            shadow_trace_region_begin(cpu, &next);
+            g_shadow_trace_model_outer.active = false;
+        }
+        return;
+    }
     const bool resumes = g_shadow_trace_outer.active &&
                          (g_shadow_trace_region.kind == 'S' || g_shadow_trace_region.kind == 'D');
     const u8 part = g_shadow_trace_outer.part;
@@ -2839,6 +2895,15 @@ static void shadow_trace_start(void* lib, const CPUState* cpu_state) {
             (unsigned long long)g_shadow_trace_from, (unsigned long long)g_shadow_trace_to,
             (unsigned)BW_SHADOW_TRACE_MARKERS);
 }
+#define BW_SHADOW_TRACE_ACTIVE __builtin_expect(g_shadow_trace != NULL, 0)
+#else
+// An ordinary build: no trace state, no markers, no hooks; the call sites compile to nothing.
+#define BW_SHADOW_TRACE_ACTIVE 0
+#define g_shadow_trace_cpu ((const CPUState*)NULL)
+static inline void shadow_trace_event(char kind, u32 value, const CPUState* cpu) { (void)kind; (void)value; (void)cpu; }
+static inline void shadow_trace_edge(CPUState* cpu, u32 address) { (void)cpu; (void)address; }
+static inline void shadow_trace_start(void* lib, const CPUState* cpu) { (void)lib; (void)cpu; }
+#endif
 
 static inline __attribute__((always_inline)) bool host_chassis_edge_service_with(
     void* user, CPUState* cpu, u32 address, bool stage_select) {
@@ -2861,7 +2926,7 @@ static inline __attribute__((always_inline)) bool host_chassis_edge_service_with
         if (cpu->pc != address)
             return true;
     }
-    if (__builtin_expect(g_shadow_trace != NULL, 0))
+    if (BW_SHADOW_TRACE_ACTIVE)
         shadow_trace_edge(cpu, address);
     if (host_chassis_requires_full(cpu, address))
         return host_chassis_edge_service_full(user, cpu, address);
@@ -4058,7 +4123,7 @@ static void host_refresh_interrupt_sources(CPUState* cpu);
 
 static void host_dsp_run_cpu_cycles(u64 cpu_cycles) {
     g_interrupt_sources_dirty = true;
-    if (__builtin_expect(g_shadow_trace != NULL, 0))
+    if (BW_SHADOW_TRACE_ACTIVE)
         shadow_trace_event('S', (u32)cpu_cycles, g_shadow_trace_cpu);
     const u64 dsp_cycles = cpu_cycles / 6u;
     if (g_dsp_adapter == NULL || dsp_cycles == 0u)
@@ -6073,7 +6138,7 @@ static void host_sync_vi_cycles(CPUState* cpu) {
     dol_vi_clock_advance(g_cycle_vi_clock, elapsed_cycles);
     while (dol_vi_clock_pop_retrace(g_cycle_vi_clock, NULL)) {
         g_host_retrace_count++;
-        if (__builtin_expect(g_shadow_trace != NULL, 0))
+        if (BW_SHADOW_TRACE_ACTIVE)
             shadow_trace_event('F', (u32)g_host_retrace_count, cpu);
         host_log_music_stream(cpu);
         bluewake_audio_watch_retrace(cpu, g_host_retrace_count);
