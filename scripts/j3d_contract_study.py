@@ -120,6 +120,7 @@ def main(argv=None):
     words_by_call = Counter(); calls_by_call = Counter()
     n_writers = 0; nwritten_total = 0
     scene_proc = None
+    game_frame = 0; last_kind = ""   # a game frame starts at the first execute region after the draw loop
     deferred = []                   # [(idx, frame, read_lines)] of this frame's writer regions
     hazard_by = Counter()           # (writer label, later writer class) -> lines
     hazard_sym = Counter()          # (symbol or heap) -> lines
@@ -178,7 +179,11 @@ def main(argv=None):
             continue
         _, kind, part, marker, proc, name, start, end, flags, reads, waddr, wsize, tag, pass_ = rec
         idx += 1
-        frame = retraces // 2
+        if kind == "X" and last_kind in ("D", "J") and any(r[0] == "D" for r in regions[-3:]):
+            game_frame += 1
+        if kind != "J":
+            last_kind = kind
+        frame = game_frame
         enclosing = last_kind_of_proc.get(proc, "?") if kind == "J" else ""
         if kind != "J":
             last_kind_of_proc[proc] = kind
@@ -279,7 +284,7 @@ def main(argv=None):
             if (w_idx, word) not in read_words:
                 evictions[(writer_label(w_idx), "unread at the end")] += 1
 
-    frames = max(retraces // 2, 1)
+    frames = max(game_frame, 1)
     writers_label = {"D": "the actors' draws", "J": "the model calls", "S": "the scene sub-phases " + (",".join(f"{m:08X}" for m in sorted(marker_filter)) or "(all)")}[W]
     print(f"##### {a.trace}  (writers: {writers_label})")
     print(f"frames {frames}, regions {len(regions)}, writer regions {n_writers} ({n_writers / frames:.0f} a frame), "
