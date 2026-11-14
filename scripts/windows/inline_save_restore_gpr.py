@@ -40,6 +40,7 @@ ends. It supports ordinary or fixed-CPU chunks. Run it before direct_calls.py an
 scripts/mods/prepare_simulation_60hz.py, whose manifest hashes the chunks as
 they finally are.
 """
+import os
 import re
 import sys
 import hashlib
@@ -85,13 +86,18 @@ def watched_addresses():
     direct_calls.py leaves it out: those addresses are ones only a diagnostic
     reads, in builds that never skip the chassis for a direct call. Both
     preparations must agree on the set, or they disagree about which calls may
-    be placed inline (the GX entry trace's ranges were the case that showed it)."""
+    be placed inline (the GX entry trace's ranges were the case that showed it).
+    `bluewake-trace-watch-begin`/`-end` (the shadow trace's region markers) count
+    only with BLUEWAKE_SHADOW_TRACE=1 in the environment, as in direct_calls.py."""
     found = set()
+    trace = os.environ.get("BLUEWAKE_SHADOW_TRACE") == "1"
     for folder in ("runtime/host/src", "windows/src"):
         for path in (ROOT / folder).rglob("*"):
             if path.suffix in (".c", ".h", ".cpp", ".mm", ".m"):
                 text = re.sub(r"bluewake-unwatched-begin.*?bluewake-unwatched-end", "",
                               path.read_text(errors="replace"), flags=re.S)
+                if not trace:
+                    text = re.sub(r"bluewake-trace-watch-begin.*?bluewake-trace-watch-end", "", text, flags=re.S)
                 for m in re.finditer(r"0x([8C][0-9A-Fa-f]{7})u?\b", text):
                     address = int(m.group(1), 16)
                     found.update((address, address | 0x40000000, address & ~0x40000000))

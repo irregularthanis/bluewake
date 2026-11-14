@@ -595,7 +595,21 @@ static bool g_live_takeover;  // see host_note_live_input
 // are always dispatched to are overweighted: __save_gpr/__restore_gpr read 9
 // percent here and a native dispatch of them saved nothing (CURRENT.md,
 // 2026-09-24). Use it to name candidates, and the instruction bench to judge.
+//
+// Each sample also reads the guest OS's current thread (the word at 0x800000E4
+// that OSGetCurrentThread loads) and counts samples per thread; the totals go
+// to PATH.threads as "thread count" lines. That splits time between guest
+// threads (the game, JASystem's audio thread, DVD) without matching names, and
+// counts callees with their thread. BLUEWAKE_PC_SAMPLE_THREAD=hex keeps only
+// that thread's pcs in PATH.
 static volatile const u32* g_pc_sample_source;
+static const volatile u8* g_pc_sample_ram;
+static u32 g_pc_sample_only_thread;
+#define PC_SAMPLE_THREADS 32u
+#define PC_SAMPLE_CURRENT_THREAD 0xE4u
+static u32 g_pc_sample_thread_ids[PC_SAMPLE_THREADS];
+static u64 g_pc_sample_thread_counts[PC_SAMPLE_THREADS];
+static u64 g_pc_sample_thread_other;
 static u32* g_pc_sample_counts;
 static const char* g_pc_sample_path;
 static u64 g_pc_sample_from, g_pc_sample_to;
@@ -611,8 +625,22 @@ static void* pc_sample_main(void* unused) {
         const u64 retrace = *(volatile u64*)&g_host_retrace_count;
         if (retrace >= g_pc_sample_from && retrace < g_pc_sample_to) {
             const u32 pc = *g_pc_sample_source;
+            const volatile u8* word = g_pc_sample_ram + PC_SAMPLE_CURRENT_THREAD;
+            const u32 thread = ((u32)word[0] << 24) | ((u32)word[1] << 16) |
+                               ((u32)word[2] << 8) | (u32)word[3];
+            u32 slot = 0;
+            while (slot < PC_SAMPLE_THREADS && g_pc_sample_thread_ids[slot] != thread &&
+                   g_pc_sample_thread_ids[slot] != 0u)
+                ++slot;
+            if (slot < PC_SAMPLE_THREADS) {
+                g_pc_sample_thread_ids[slot] = thread;
+                g_pc_sample_thread_counts[slot]++;
+            } else {
+                g_pc_sample_thread_other++;
+            }
             const u32 offset = (pc & 0x3FFFFFFFu) >> 2;
-            if (offset < PC_SAMPLE_WORDS)
+            if (offset < PC_SAMPLE_WORDS &&
+                (g_pc_sample_only_thread == 0u || thread == g_pc_sample_only_thread))
                 g_pc_sample_counts[offset]++;
         }
         nanosleep(&period, NULL);
@@ -633,6 +661,19 @@ static void pc_sample_finish(void) {
         if (g_pc_sample_counts[i] != 0u)
             fprintf(out, "%08X %u\n", 0x80000000u | (i << 2), g_pc_sample_counts[i]);
     fclose(out);
+    char threads_path[4096];
+    if (snprintf(threads_path, sizeof threads_path, "%s.threads", g_pc_sample_path) >=
+        (int)sizeof threads_path)
+        return;
+    out = fopen(threads_path, "w");
+    if (out == NULL)
+        return;
+    for (u32 i = 0; i < PC_SAMPLE_THREADS && g_pc_sample_thread_ids[i] != 0u; ++i)
+        fprintf(out, "%08X %llu\n", g_pc_sample_thread_ids[i],
+                (unsigned long long)g_pc_sample_thread_counts[i]);
+    if (g_pc_sample_thread_other != 0u)
+        fprintf(out, "other %llu\n", (unsigned long long)g_pc_sample_thread_other);
+    fclose(out);
 }
 
 static void pc_sample_start(const CPUState* cpu) {
@@ -643,9 +684,14 @@ static void pc_sample_start(const CPUState* cpu) {
     const char* to = getenv("BLUEWAKE_PC_SAMPLE_TO");
     g_pc_sample_from = from != NULL ? strtoull(from, NULL, 10) : 0u;
     g_pc_sample_to = to != NULL ? strtoull(to, NULL, 10) : UINT64_MAX;
+    if (cpu->ram == NULL || cpu->ram_size <= PC_SAMPLE_CURRENT_THREAD + 4u)
+        return;
+    const char* only = getenv("BLUEWAKE_PC_SAMPLE_THREAD");
+    g_pc_sample_only_thread = only != NULL ? (u32)strtoul(only, NULL, 16) : 0u;
     g_pc_sample_counts = calloc(PC_SAMPLE_WORDS, sizeof(u32));
     if (g_pc_sample_counts == NULL)
         return;
+    g_pc_sample_ram = cpu->ram;
     g_pc_sample_source = &cpu->pc;
     if (pthread_create(&g_pc_sample_thread, NULL, pc_sample_main, NULL) == 0) {
         g_pc_sample_started = true;
@@ -2511,6 +2557,289 @@ static bool host_direct_can_skip_stage_select(void* user, const CPUState* cpu, u
     return host_direct_can_skip_with(cpu, address, true);
 }
 
+// Shadow-batch trace (BLUEWAKE_SHADOW_TRACE=path, _FROM, _TO: retraces). With a
+// module built with BLUEWAKE_SHADOW_TRACE, each marked region of the frame is
+// written to PATH with its guest accesses, cycles and flags, along with the
+// interrupt deliveries, DSP steps and retraces, for the limit study of
+// docs/planning/2026-11-03-parallel_guest_execution (scripts/shadow_limit_study.py
+// reads it). A marker is an entry address and the return address its caller
+// lands on, with a kind: 'X' one process's execute (fpcLnIt_MethodCall, back
+// into cNdIt_Method), 'D' one process's draw (fpcM_Draw, back into its caller),
+// 'S' a sub-phase of the scene's execute or draw (a call dScnPly_Execute or
+// dScnPly_Draw makes, back into it). A marker must sit on a chassis boundary: a call that
+// crosses translated chunks (a call inside one chunk is a plain jump and never
+// reaches the edge service). A sub-phase splits the region it runs inside: the part
+// before it, the sub-phase, the part after, each written with the enclosing
+// process. The addresses are named here so the builder's watch list
+// (scripts/windows/direct_calls.py) brings the edge service to all of them, in
+// a trace build only (BLUEWAKE_SHADOW_TRACE=1 in the builder's environment);
+// every other build keeps its direct calls at these sites.
+// bluewake-trace-watch-begin
+#include "../../../cmake/composite/shadow_trace.h"
+typedef struct BwShadowTraceMarker { u32 entry, ret; char kind; } BwShadowTraceMarker;
+static const BwShadowTraceMarker g_shadow_trace_markers[] = {
+    {0x80040198u, 0x80244EFCu, 'X'},  // fpcLnIt_MethodCall -> cNdIt_Method
+    // The draw pass: fpcM_DrawIterater walks the root layer (cNdIt_Method ->
+    // cTgIt_MethodCall, one chunk) and cTgIt_MethodCall's bctrl calls fpcM_Draw
+    // for the scene; dScnPly_Draw then calls fpcM_Draw for every process on the
+    // draw list. fpcM_Draw -> fpcDw_Execute is one chunk, so fpcM_Draw is the marker.
+    {0x8003E318u, 0x80245630u, 'D'},  // fpcM_Draw of a root-layer process (the scene), back into cTgIt_MethodCall
+    {0x8003E318u, 0x80234F44u, 'D'},  // fpcM_Draw of each process, from dScnPly_Draw's loop; nested in the scene's draw
+    // dScnPly_Draw's sub-phases (cross-chunk calls, back into it)
+    {0x800AE81Cu, 0x80234BC8u, 'S'},  // dCcS::Move (actor collision)
+    {0x800AC96Cu, 0x80234E68u, 'S'},  // dCcMassS_Mng::Prepare
+    {0x80052C48u, 0x80234E70u, 'S'},  // dComIfG_play_c::executeGrass
+    {0x8005301Cu, 0x80234E78u, 'S'},  // executeTree
+    {0x80053120u, 0x80234E80u, 'S'},  // executeWood
+    {0x80052E08u, 0x80234E88u, 'S'},  // executeFlower
+    {0x8007D094u, 0x80234ED4u, 'S'},  // dPa_control_c::calc3D (particles)
+    {0x8007D0DCu, 0x80234EE4u, 'S'},  // dPa_control_c::calc2D
+    {0x800AE878u, 0x80234F0Cu, 'S'},  // dCcS::MassClear
+    {0x8007D124u, 0x80234F1Cu, 'S'},  // dPa_control_c::calcMenu
+    {0x800410ACu, 0x80234F30u, 'S'},  // dStage_roomControl_c::checkDrawArea
+    {0x8007B074u, 0x80234F70u, 'S'},  // dPa_modelControl_c::draw
+    {0x80052AB0u, 0x80234F78u, 'S'},  // drawMagma
+    {0x80052C74u, 0x80234F80u, 'S'},  // drawGrass
+    {0x80053048u, 0x80234F88u, 'S'},  // drawTree
+    {0x8005314Cu, 0x80234F90u, 'S'},  // drawWood
+    {0x80052E34u, 0x80234F98u, 'S'},  // drawFlower
+    {0x800AE83Cu, 0x80234FA0u, 'S'},  // dCcS::Draw
+    {0x8009F460u, 0x80234FACu, 'S'},  // dAttention_c::Draw
+    {0x80234570u, 0x8023501Cu, 'S'},  // dScnPly_ply_c::calcPauseTimer
+    {0x801971D8u, 0x80235030u, 'S'},  // dKy_itudemo_se
+    {0x8006B12Cu, 0x8023504Cu, 'S'},  // dDemo_manager_c::update
+    {0x800529B8u, 0x80235060u, 'S'},  // dComIfG_play_c::executeEvtManager
+    {0x8009F1D4u, 0x80235078u, 'S'},  // dAttention_c::Run
+    {0x8009C0F8u, 0x8023509Cu, 'S'},  // dDetect_c::proc
+};
+// bluewake-trace-watch-end
+#define BW_SHADOW_TRACE_MARKERS (sizeof g_shadow_trace_markers / sizeof g_shadow_trace_markers[0])
+typedef struct BwShadowTraceRegion {
+    bool active;
+    char kind;
+    u8 part;
+    u32 marker, sp, tag, proc, pass, host_flags;
+    u16 name;
+    u64 start;
+} BwShadowTraceRegion;
+static BwShadowTrace* g_shadow_trace;
+static const CPUState* g_shadow_trace_cpu;
+static FILE* g_shadow_trace_file;
+static u64 g_shadow_trace_from, g_shadow_trace_to;
+static BwShadowTraceRegion g_shadow_trace_region;   // the region being logged
+static BwShadowTraceRegion g_shadow_trace_outer;    // the region a sub-phase interrupted
+static unsigned long long g_shadow_trace_regions, g_shadow_trace_truncated;
+
+static inline bool shadow_trace_window(void) {
+    return g_host_retrace_count >= g_shadow_trace_from && g_host_retrace_count < g_shadow_trace_to;
+}
+
+static inline u64 shadow_trace_now(const CPUState* cpu) {
+    return g_cycle_domain.absolute_cycles + (cpu->downcount < 0 ? (u64)(-cpu->downcount) : 0u);
+}
+
+static void shadow_trace_put(const void* data, size_t size) {
+    if (g_shadow_trace_file != NULL && fwrite(data, 1, size, g_shadow_trace_file) != size) {
+        fclose(g_shadow_trace_file);
+        g_shadow_trace_file = NULL;
+        fprintf(stderr, "[shadow-trace] write failed; trace closed\n");
+    }
+}
+
+// 'I' an interrupt delivered (kind: the PI cause, or 0 for the decrementer),
+// 'S' a DSP step, 'F' a retrace: each with the guest cycle.
+static void shadow_trace_event(char kind, u32 value, const CPUState* cpu) {
+    if (g_shadow_trace == NULL || g_shadow_trace_file == NULL || !shadow_trace_window())
+        return;
+    if (kind == 'I' && g_shadow_trace_region.active)
+        g_shadow_trace_region.host_flags |= BW_TRACE_FLAG_INTERRUPT;
+    const u64 cycle = shadow_trace_now(cpu);
+    u8 record[1 + 4 + 8];
+    record[0] = (u8)kind;
+    memcpy(record + 1, &value, 4);
+    memcpy(record + 5, &cycle, 8);
+    shadow_trace_put(record, sizeof record);
+}
+
+static void shadow_trace_reset_sets(BwShadowTrace* trace) {
+    trace->read_count = 0u;
+    trace->write_count = 0u;
+    trace->flags = 0u;
+    trace->alias_accesses = 0u;
+    trace->hardware_accesses = 0u;
+    memset(trace->filter, 0xFF, sizeof trace->filter);
+}
+
+// Record: 'R', tag, proc, pass, name (u16), kind (u8), part (u8), marker,
+// start, end (u64), flags, alias, hardware, reads, writes; then the read
+// lines (u32 each), the store addresses (u32 each) and the store sizes (u8 each).
+static void shadow_trace_region_end(const CPUState* cpu) {
+    BwShadowTrace* trace = g_shadow_trace;
+    BwShadowTraceRegion* r = &g_shadow_trace_region;
+    trace->on = 0u;
+    r->active = false;
+    const u64 end = shadow_trace_now(cpu);
+    const u32 flags = trace->flags | r->host_flags;
+    if ((flags & (BW_TRACE_FLAG_READ_OVERFLOW | BW_TRACE_FLAG_WRITE_OVERFLOW)) != 0u)
+        g_shadow_trace_truncated++;
+    g_shadow_trace_regions++;
+    u8 head[1 + 4 * 3 + 2 + 1 + 1 + 4 + 8 * 2 + 4 * 5];
+    size_t at = 0;
+    head[at++] = 'R';
+    memcpy(head + at, &r->tag, 4); at += 4;
+    memcpy(head + at, &r->proc, 4); at += 4;
+    memcpy(head + at, &r->pass, 4); at += 4;
+    memcpy(head + at, &r->name, 2); at += 2;
+    head[at++] = (u8)r->kind;
+    head[at++] = r->part;
+    memcpy(head + at, &r->marker, 4); at += 4;
+    memcpy(head + at, &r->start, 8); at += 8;
+    memcpy(head + at, &end, 8); at += 8;
+    memcpy(head + at, &flags, 4); at += 4;
+    memcpy(head + at, &trace->alias_accesses, 4); at += 4;
+    memcpy(head + at, &trace->hardware_accesses, 4); at += 4;
+    memcpy(head + at, &trace->read_count, 4); at += 4;
+    memcpy(head + at, &trace->write_count, 4); at += 4;
+    shadow_trace_put(head, at);
+    shadow_trace_put(trace->read_lines, (size_t)trace->read_count * 4u);
+    shadow_trace_put(trace->write_addr, (size_t)trace->write_count * 4u);
+    shadow_trace_put(trace->write_size, (size_t)trace->write_count);
+}
+
+static void shadow_trace_region_begin(CPUState* cpu, const BwShadowTraceRegion* like) {
+    BwShadowTrace* trace = g_shadow_trace;
+    g_shadow_trace_region = *like;
+    g_shadow_trace_region.active = true;
+    g_shadow_trace_region.start = shadow_trace_now(cpu);
+    g_shadow_trace_region.host_flags = 0u;
+    shadow_trace_reset_sets(trace);
+    trace->on = 1u;
+}
+
+static void shadow_trace_enter(CPUState* cpu, const BwShadowTraceMarker* m) {
+    BwShadowTraceRegion next;
+    memset(&next, 0, sizeof next);
+    if (m->kind == 'S') {
+        // A sub-phase: only inside a top-level process region (not inside a draw
+        // nested in the scene's draw, nor another sub-phase); it keeps that process.
+        if (!g_shadow_trace_region.active || g_shadow_trace_region.kind == 'S' || g_shadow_trace_outer.active)
+            return;
+        g_shadow_trace_outer = g_shadow_trace_region;
+        shadow_trace_region_end(cpu);
+        next = g_shadow_trace_outer;
+        next.kind = 'S';
+        next.part = 0;
+        next.marker = m->entry;
+        next.sp = cpu->gpr[1];
+        shadow_trace_region_begin(cpu, &next);
+        return;
+    }
+    bool nested = false;
+    if (g_shadow_trace_region.active) {
+        // A process's draw inside the scene's draw loop: the scene's draw resumes
+        // as its next part when the process's draw returns. Anything else is a
+        // missed return: close it here.
+        nested = m->kind == 'D' && g_shadow_trace_region.kind == 'D' && !g_shadow_trace_outer.active;
+        if (nested)
+            g_shadow_trace_outer = g_shadow_trace_region;
+        shadow_trace_region_end(cpu);
+    }
+    if (!nested)
+        g_shadow_trace_outer.active = false;
+    const u32 r3 = cpu->gpr[3];
+    next.kind = m->kind;
+    next.marker = m->entry;
+    next.sp = cpu->gpr[1];
+    if (m->kind == 'X') {
+        next.tag = r3;
+        next.proc = mem_read32(cpu, r3 + 0x0Cu);   // create_tag_class::mpTagData
+        next.pass = mem_read32(cpu, cpu->gpr[4]);  // method_filter::mpMethodFunc
+    } else {
+        next.tag = 0u;
+        next.proc = r3;                            // fpcDw_Execute(base_process_class*)
+        next.pass = 0x8003E318u;                   // fpcM_Draw
+    }
+    next.name = mem_read16(cpu, next.proc + 0x08u);  // base_process_class::mProcName
+    shadow_trace_region_begin(cpu, &next);
+}
+
+static void shadow_trace_leave(CPUState* cpu, const BwShadowTraceMarker* m) {
+    if (!g_shadow_trace_region.active || g_shadow_trace_region.marker != m->entry ||
+        cpu->gpr[1] != g_shadow_trace_region.sp)
+        return;
+    const bool resumes = g_shadow_trace_outer.active &&
+                         (g_shadow_trace_region.kind == 'S' || g_shadow_trace_region.kind == 'D');
+    const u8 part = g_shadow_trace_outer.part;
+    shadow_trace_region_end(cpu);
+    if (resumes) {
+        // The rest of the enclosing region, as its next part.
+        BwShadowTraceRegion next = g_shadow_trace_outer;
+        next.part = (u8)(part + 1u);
+        shadow_trace_region_begin(cpu, &next);
+        g_shadow_trace_outer.active = false;   // the resumed region is the current one again, not suspended
+    }
+}
+
+static inline void shadow_trace_edge(CPUState* cpu, u32 address) {
+    for (size_t i = 0; i < BW_SHADOW_TRACE_MARKERS; ++i) {
+        const BwShadowTraceMarker* m = &g_shadow_trace_markers[i];
+        if (address == m->entry) {
+            if (g_shadow_trace_file != NULL && shadow_trace_window())
+                shadow_trace_enter(cpu, m);
+            else if (g_shadow_trace_region.active)
+                shadow_trace_region_end(cpu);
+            return;
+        }
+        if (address == m->ret && g_shadow_trace_region.active && g_shadow_trace_region.marker == m->entry) {
+            shadow_trace_leave(cpu, m);
+            return;
+        }
+    }
+}
+
+static void shadow_trace_finish(void) {
+    if (g_shadow_trace != NULL && g_shadow_trace_file != NULL) {
+        fclose(g_shadow_trace_file);
+        g_shadow_trace_file = NULL;
+        fprintf(stderr, "[shadow-trace] regions=%llu truncated=%llu\n",
+                g_shadow_trace_regions, g_shadow_trace_truncated);
+    }
+}
+
+static void shadow_trace_start(void* lib, const CPUState* cpu_state) {
+    const char* path = getenv("BLUEWAKE_SHADOW_TRACE");
+    if (path == NULL || path[0] == '\0')
+        return;
+    typedef BwShadowTrace* (*ShadowTraceFn)(void);
+    ShadowTraceFn get_trace = (ShadowTraceFn)dlsym(lib, "bluewake_composite_shadow_trace");
+    if (get_trace == NULL) {
+        fprintf(stderr, "[shadow-trace] the module was not built with BLUEWAKE_SHADOW_TRACE; off\n");
+        return;
+    }
+    BwShadowTrace* trace = get_trace();
+    if (trace == NULL || trace->version != 1u) {
+        fprintf(stderr, "[shadow-trace] unsupported trace version; off\n");
+        return;
+    }
+    g_shadow_trace_file = fopen(path, "wb");
+    if (g_shadow_trace_file == NULL) {
+        fprintf(stderr, "[shadow-trace] cannot open %s; off\n", path);
+        return;
+    }
+    const char* from = getenv("BLUEWAKE_SHADOW_TRACE_FROM");
+    const char* to = getenv("BLUEWAKE_SHADOW_TRACE_TO");
+    g_shadow_trace_from = from != NULL ? strtoull(from, NULL, 10) : 0u;
+    g_shadow_trace_to = to != NULL ? strtoull(to, NULL, 10) : UINT64_MAX;
+    g_shadow_trace = trace;
+    g_shadow_trace_cpu = cpu_state;
+    static const char magic[8] = {'B', 'W', 'S', 'T', 2, 0, 0, 0};
+    shadow_trace_put(magic, sizeof magic);
+    atexit(shadow_trace_finish);
+    fprintf(stderr, "[shadow-trace] to %s, retraces %llu..%llu, %u markers\n", path,
+            (unsigned long long)g_shadow_trace_from, (unsigned long long)g_shadow_trace_to,
+            (unsigned)BW_SHADOW_TRACE_MARKERS);
+}
+
 static inline __attribute__((always_inline)) bool host_chassis_edge_service_with(
     void* user, CPUState* cpu, u32 address, bool stage_select) {
 #if BLUEWAKE_ENABLE_DEVELOPER_TRACING
@@ -2532,6 +2861,8 @@ static inline __attribute__((always_inline)) bool host_chassis_edge_service_with
         if (cpu->pc != address)
             return true;
     }
+    if (__builtin_expect(g_shadow_trace != NULL, 0))
+        shadow_trace_edge(cpu, address);
     if (host_chassis_requires_full(cpu, address))
         return host_chassis_edge_service_full(user, cpu, address);
     if (address == BW_SEARCH_JUDGE_FILTER && g_actor_search_native)
@@ -2540,6 +2871,7 @@ static inline __attribute__((always_inline)) bool host_chassis_edge_service_with
 }
 
 static BluewakeTurnEntry g_turn_entry = {BLUEWAKE_TURN_ENTRY_NONE};
+
 
 static bool host_chassis_edge_service(void* user, CPUState* cpu, u32 address) {
     return bluewake_turn_entry_edge(&g_turn_entry, address,
@@ -3407,6 +3739,7 @@ static u64 host_mmio_read(CPUState* ctx, u32 address, u8 size);
 
 static void deliver_external_interrupt(CPUState* cpu) {
     const u32 pi_cause = dol_interrupts_pi_cause(&g_interrupts);
+    shadow_trace_event('I', pi_cause, cpu);
     if (g_audio_object_watch &&
         dol_audio_dma_dsp_interrupt_pending(&g_audio_dma) &&
         g_audio_dma_irq_reports < 16u) {
@@ -3591,6 +3924,7 @@ static void host_delivery_safety_observe(const CPUState* cpu, const char* line) 
 
 static void deliver_decrementer_exception(CPUState* cpu) {
     const u32 context = mem_read32(cpu, 0x800000D4u);
+    shadow_trace_event('I', 0u, cpu);
     if (context < 0x80000000u || context >= 0x80000000u + cpu->ram_size)
         return;
 
@@ -3724,6 +4058,8 @@ static void host_refresh_interrupt_sources(CPUState* cpu);
 
 static void host_dsp_run_cpu_cycles(u64 cpu_cycles) {
     g_interrupt_sources_dirty = true;
+    if (__builtin_expect(g_shadow_trace != NULL, 0))
+        shadow_trace_event('S', (u32)cpu_cycles, g_shadow_trace_cpu);
     const u64 dsp_cycles = cpu_cycles / 6u;
     if (g_dsp_adapter == NULL || dsp_cycles == 0u)
         return;
@@ -5737,6 +6073,8 @@ static void host_sync_vi_cycles(CPUState* cpu) {
     dol_vi_clock_advance(g_cycle_vi_clock, elapsed_cycles);
     while (dol_vi_clock_pop_retrace(g_cycle_vi_clock, NULL)) {
         g_host_retrace_count++;
+        if (__builtin_expect(g_shadow_trace != NULL, 0))
+            shadow_trace_event('F', (u32)g_host_retrace_count, cpu);
         host_log_music_stream(cpu);
         bluewake_audio_watch_retrace(cpu, g_host_retrace_count);
 #if BLUEWAKE_ENABLE_DEVELOPER_TRACING
@@ -8830,6 +9168,7 @@ int main(int argc, char** argv) {
     g_input_log_enabled = getenv("BLUEWAKE_INPUT_LOG") != NULL &&
                           strcmp(getenv("BLUEWAKE_INPUT_LOG"), "0") != 0;
     pc_sample_start(&cpu);
+    shadow_trace_start(lib, &cpu);
     g_gx_flush_census = getenv("BLUEWAKE_GX_FLUSH_CENSUS") != NULL;
     g_gx_flush_min_retrace = bw_gx_flush_start(getenv("BLUEWAKE_GX_FLUSH_FROM"));
     if (getenv("BLUEWAKE_CREDIT_CENSUS") != NULL) {

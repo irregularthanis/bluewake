@@ -32,6 +32,7 @@ they finally are.
 """
 import bisect
 import hashlib
+import os
 import re
 import sys
 from pathlib import Path
@@ -85,13 +86,20 @@ def watched_addresses():
     0x40000000 bit cleared (host_canonical_linked_pc), so a REL chunk's
     0xC1E01B88 is its 0x81E01B88. Text between `bluewake-unwatched-begin` and
     `bluewake-unwatched-end` is left out: addresses only a diagnostic reads, in
-    builds that never skip the chassis for a direct call (Elliott Tate's 5edeacc)."""
+    builds that never skip the chassis for a direct call (Elliott Tate's 5edeacc).
+    Text between `bluewake-trace-watch-begin` and `bluewake-trace-watch-end` (the
+    shadow trace's region markers) counts only when BLUEWAKE_SHADOW_TRACE=1 is in
+    the environment, which the Linux builder sets for --shadow-trace: a trace
+    build must see those boundaries, any other build keeps its direct calls."""
     found = set()
+    trace = os.environ.get("BLUEWAKE_SHADOW_TRACE") == "1"
     for folder in ("runtime/host/src", "windows/src"):
         for path in (ROOT / folder).rglob("*"):
             if path.suffix in (".c", ".h", ".cpp", ".mm", ".m"):
                 text = re.sub(r"bluewake-unwatched-begin.*?bluewake-unwatched-end", "",
                               path.read_text(errors="replace"), flags=re.S)
+                if not trace:
+                    text = re.sub(r"bluewake-trace-watch-begin.*?bluewake-trace-watch-end", "", text, flags=re.S)
                 for m in re.finditer(r"0x([8C][0-9A-Fa-f]{7})u?\b", text):
                     address = int(m.group(1), 16)
                     found.update((address, address | 0x40000000, address & ~0x40000000))
