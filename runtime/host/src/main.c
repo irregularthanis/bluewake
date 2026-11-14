@@ -172,6 +172,7 @@ static pthread_mutex_t g_painter_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_painter_cv = PTHREAD_COND_INITIALIZER;
 static int g_painter_request;          // 0 idle, 1 run the span, 2 the span is done
 static bool g_painter_trace;            // BLUEWAKE_PAINTER_TRACE=1: the first spans' turns to stderr
+static bool g_painter_force_fp;         // BLUEWAKE_FORCE_FP, as the main loop honours it after each turn
 static CPUState* g_painter_cpu;
 static const char* g_painter_fatal;    // a stop the worker met, for the main loop's stop_reason
 static u64 g_painter_handoffs, g_painter_handoff_ns, g_painter_worker_turns, g_painter_uncovered;
@@ -8374,6 +8375,7 @@ static void painter_job_load(const StaticRecompModuleDesc* mod, CPUState* cpu_st
         const char* worker = getenv("BLUEWAKE_PAINTER_WORKER");
         const char* trace = getenv("BLUEWAKE_PAINTER_TRACE");
         g_painter_trace = trace != NULL && strcmp(trace, "1") == 0;
+        g_painter_force_fp = getenv("BLUEWAKE_FORCE_FP") != NULL;
         if (worker != NULL && strcmp(worker, "1") == 0) {
             pthread_attr_t attr;
             pthread_attr_init(&attr);
@@ -8420,6 +8422,12 @@ static void painter_turn_on_worker(CPUState* cpu, bool first) {
     host_alias_rel_pc(cpu);
     painter_job_turn_end(cpu);
     g_painter_worker_turns++;
+    if (g_painter_force_fp)
+        cpu->msr |= PPC_MSR_FP;
+    // The turn's end, as the main loop's: the executed cycles credited to the clock and the
+    // devices advanced (the retrace the painter's wait sleeps for comes from here). Without it
+    // the idle loop spun on a budget that was never flushed and time stood still.
+    (void)bluewake_cycle_domain_end_turn(&g_cycle_domain, cpu);
     if (!dispatched) {
         g_painter_uncovered++;
         g_painter_active = false;
