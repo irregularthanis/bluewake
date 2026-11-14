@@ -150,6 +150,7 @@ static void* g_painter_lib;
 static const StaticRecompModuleDesc* g_painter_mod;
 static GuestAliasAddSharedFn g_painter_alias_add_shared;
 static bool g_painter_active;
+static bool g_painter_pending;   // the hand-off turn (the game module's, ending at the entry) is still to end
 static u32 g_painter_sp;
 static u64 g_painter_frames, g_painter_turns, g_painter_cycles, g_painter_ns, g_painter_overshoot,
            g_painter_span_turns, g_painter_turn_ns;
@@ -3000,6 +3001,7 @@ static inline bool painter_job_edge(CPUState* cpu, u32 address) {
     if (g_painter_active || address != BW_PAINTER_ENTRY)
         return false;
     g_painter_active = true;
+    g_painter_pending = true;
     g_painter_sp = cpu->gpr[1];
     g_painter_span_turns = 0u;
     g_painter_frames++;
@@ -3013,7 +3015,7 @@ static inline bool painter_job_edge(CPUState* cpu, u32 address) {
 // game module. A turn ends at a budget, not at the painter's return (the second module's
 // return into fpcM_Management is a direct one, not an edge), so the span may run a turn long.
 static inline void painter_job_turn_begin(const CPUState* cpu) {
-    if (!g_painter_active)
+    if (!g_painter_active || g_painter_pending)
         return;
     g_painter_turn_ns = painter_now_ns();
     g_painter_turn_downcount = cpu->downcount;
@@ -3022,6 +3024,11 @@ static inline void painter_job_turn_begin(const CPUState* cpu) {
 static inline void painter_job_turn_end(const CPUState* cpu) {
     if (!g_painter_active)
         return;
+    if (g_painter_pending) {
+        // The turn that ended at the entry was the game module's; the span's turns start with the next dispatch.
+        g_painter_pending = false;
+        return;
+    }
     g_painter_turns++;
     g_painter_span_turns++;
     g_painter_ns += painter_now_ns() - g_painter_turn_ns;
