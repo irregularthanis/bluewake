@@ -220,7 +220,7 @@ def main(argv=None):
                                 hazard_sym[name_of(table, starts, wl[line], offset=False) or "heap"] += 1
         # readers of remembered writes
         if pending:
-            for line in reads:
+            for line in set(reads):   # the trace's read list repeats a line the direct-mapped filter evicted: a region counts once per line
                 hit = pending.get(line)
                 if not hit:
                     continue
