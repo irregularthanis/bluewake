@@ -46,6 +46,7 @@ flowchart LR
 
 - **Boundary:** `dBgS` queries (`GroundCross`, `WallCorrect`, roof, line checks) and the world's per-frame update; the `cBgW` block structures in REL alias storage (#501).
 - **Contract:** the results of each query (exact), the world update's writes; #542's harness and census.
+- **Assets (checked 2026-11-14):** the differential harness `tests/native_bg_test.c` with `cmake/composite/native_bg.c` is on main (random registers, flags, cycle state and collision data, 60,000 cases a function, an edge service that ends the run at the return); the module census `bg_census_module.c` and the exact ground-walk prototype `native_ground_walk.c` (`f102f07`, 400,000 cases identical, no gain as a native walk) live on #542's branch and history. The hit collision (`cCcS`/`dCcS`, the scene's `dCcS::Move`) is a different system: 2.9 % of the shipped build's busy samples, its outputs read by the actors' execute (a fifth) — not this item.
 - **Host shape:** a host spatial index built from the BG data at room load, answering queries serially (each actor needs its answer at once) and updating moving BG in parallel per object.
 - **Exactness:** exact results; the cycles as the translation charges (#542's model) or "plays the same".
 - **Expected:** ≈ 3–5 % here, more in collision-heavy rooms.
@@ -64,7 +65,8 @@ flowchart LR
 - **Contract:** emitter inputs written by actors, particle state, the draw's reads; JPA's own RNG.
 - **Host shape:** per-emitter jobs after the execute pass, joined before the draw pass.
 - **Exactness:** bit-exact simulation.
-- **Expected:** ≈ 2–3 %.
+- **Measured contract (2026-11-14, tracker M0-T04):** `calc3D` writes ≈ 3.75 k words a frame, 95–98 % of them read only by `calc3D` itself next frame (2 % by `calc2D`); the shipped-build share is 3.0 % at the busiest view and 14.5 % at the shipwreck. The deferral hazards (what a job after the execute pass must snapshot) are in the tracker's evidence row.
+- **Expected:** ≈ 2–3 % (14 % at the shipwreck).
 
 ### 5 and 6. Host overheads; the Z-targeting scan
 
