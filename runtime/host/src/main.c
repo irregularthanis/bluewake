@@ -20,6 +20,7 @@
 #include "../../../cmake/composite/module_cpu_contract.h"
 #include "../../../cmake/composite/direct_skip.h"
 #include <stdatomic.h>
+#include <fenv.h>
 #include "aram_dma.h"
 #include "actor_search_budget.h"
 #include "audio_capture.h"
@@ -160,22 +161,27 @@ static s64 g_painter_turn_downcount;
 #define BW_PAINTER_MAIN_STACK_LO 0x80408000u
 #define BW_PAINTER_MAIN_STACK_HI 0x8040D000u
 #define BW_PAINTER_MAX_SPAN_TURNS 50000u
-// Stage A2 (BLUEWAKE_PAINTER_WORKER=1): the painter's turns run on a worker thread while the
-// game thread waits for them, one thread active at a time: the worker takes the game-thread
-// role for the span (the same CPU state, memory, module callbacks and host services, the main
-// loop's own per-turn sequence), and hands it back with the state as it left it. Exact by
-// construction; it measures the hand-off and the cost of the painter's code and data moving
-// to another core, before the game thread continues past the painter (stage B).
+// Stage A2 (BLUEWAKE_PAINTER_WORKER=1): each of the painter's dispatches runs on a worker thread
+// while the game thread waits for it. Every host step of the turn - the cycle domain, the device
+// service, the interrupts, the deadlines, the retrace and its present - stays on the game thread,
+// in the main loop, exactly as without the worker; only the painter module's dispatch moves: the
+// same CPU state and memory, the game thread's floating-point environment handed over and back.
+// One thread active at a time: exact by construction. During a span the two threads spin between
+// dispatches (a span is a few hundred dispatches); between spans the worker sleeps. It measures
+// the painter's translated code on another core, before the game thread continues past the
+// painter (stage B). (The first form ran whole turns on the worker and had to repeat the main
+// loop's per-turn host steps there; it missed the end-of-turn device service and never left the
+// painter's retrace wait.)
 static bool g_painter_worker_on;
 static pthread_t g_painter_thread;
 static pthread_mutex_t g_painter_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_painter_cv = PTHREAD_COND_INITIALIZER;
-static int g_painter_request;          // 0 idle, 1 run the span, 2 the span is done
-static bool g_painter_trace;            // BLUEWAKE_PAINTER_TRACE=1: the first spans' turns to stderr
-static bool g_painter_force_fp;         // BLUEWAKE_FORCE_FP, as the main loop honours it after each turn
+static _Atomic unsigned long long g_painter_go, g_painter_done;
+static _Atomic int g_painter_parked;
 static CPUState* g_painter_cpu;
-static const char* g_painter_fatal;    // a stop the worker met, for the main loop's stop_reason
-static u64 g_painter_handoffs, g_painter_handoff_ns, g_painter_worker_turns, g_painter_uncovered;
+static int g_painter_result;
+static fenv_t g_painter_env;
+static u64 g_painter_handoffs, g_painter_remote_ns, g_painter_worker_ns;
 static bool g_module336_bss_alias_installed;
 static BlueWakeRelSlot g_rel_slots[BLUEWAKE_MAX_REL_SLOTS];
 static const BlueWakeRelData* g_rel_data;
@@ -3065,10 +3071,10 @@ static void painter_job_report(void) {
             (unsigned long long)g_painter_frames, (unsigned long long)g_painter_turns, (double)g_painter_turns / frames,
             (double)g_painter_cycles / frames, (double)g_painter_ns / frames / 1.0e6, (unsigned long long)g_painter_overshoot);
     if (g_painter_worker_on)
-        fprintf(stderr, "[painter] worker: handoffs=%llu turns=%llu span-ms=%.3f a frame (the turns' host time above is inside it: the hand-off costs %.3f ms a frame) uncovered=%llu\n",
-                (unsigned long long)g_painter_handoffs, (unsigned long long)g_painter_worker_turns,
-                (double)g_painter_handoff_ns / frames / 1.0e6,
-                ((double)g_painter_handoff_ns - (double)g_painter_ns) / frames / 1.0e6, (unsigned long long)g_painter_uncovered);
+        fprintf(stderr, "[painter] worker: dispatches=%llu (%.1f a frame) on the worker %.3f ms a frame, seen from the game thread %.3f ms a frame: the hand-offs cost %.3f ms a frame\n",
+                (unsigned long long)g_painter_handoffs, (double)g_painter_handoffs / frames,
+                (double)g_painter_worker_ns / frames / 1.0e6, (double)g_painter_remote_ns / frames / 1.0e6,
+                ((double)g_painter_remote_ns - (double)g_painter_worker_ns) / frames / 1.0e6);
 }
 
 static inline __attribute__((always_inline)) bool host_chassis_edge_service_with(
@@ -8373,9 +8379,6 @@ static void painter_job_load(const StaticRecompModuleDesc* mod, CPUState* cpu_st
     g_painter_mod = mod2;
     {
         const char* worker = getenv("BLUEWAKE_PAINTER_WORKER");
-        const char* trace = getenv("BLUEWAKE_PAINTER_TRACE");
-        g_painter_trace = trace != NULL && strcmp(trace, "1") == 0;
-        g_painter_force_fp = getenv("BLUEWAKE_FORCE_FP") != NULL;
         if (worker != NULL && strcmp(worker, "1") == 0) {
             pthread_attr_t attr;
             pthread_attr_init(&attr);
@@ -8384,7 +8387,7 @@ static void painter_job_load(const StaticRecompModuleDesc* mod, CPUState* cpu_st
             pthread_attr_destroy(&attr);
             if (created == 0) {
                 g_painter_worker_on = true;
-                fprintf(stderr, "[painter] worker thread: the painter's turns run there while the game thread waits\n");
+                fprintf(stderr, "[painter] worker thread: the painter's dispatches run there while the game thread waits\n");
             } else {
                 fprintf(stderr, "[painter] worker thread: cannot start; the painter runs on the game thread\n");
             }
@@ -8397,110 +8400,65 @@ static void painter_job_load(const StaticRecompModuleDesc* mod, CPUState* cpu_st
             chunks, BW_PAINTER_ENTRY);
 }
 
-// One of the painter's turns on the worker: the main loop's own per-turn sequence (the state
-// service, the pad pulses and the tracing aside), the dispatch on the painter module, and the
-// exceptions handled as the main loop handles them. The first turn of a span was prepared by
-// the game thread (begin_turn, prepare_dispatch, the turn entry, the gate) before it handed
-// over, so only its dispatch runs here.
-static void painter_turn_on_worker(CPUState* cpu, bool first) {
-    if (!first) {
-        bluewake_cycle_domain_begin_turn(&g_cycle_domain, cpu);
-        bluewake_card_runtime_service_callback(cpu);
-        bluewake_card_runtime_dispatch(cpu);
-        bluewake_forest_water_dispatch(cpu, cpu->pc);
-        host_refresh_interrupt_sources(cpu);
-        if (bluewake_scheduler_interrupt_requires_host(cpu->pc, cpu->msr, dol_interrupts_external_pending(&g_interrupts))) {
-            host_delivery_safety_observe(cpu, "external");
-            deliver_external_interrupt(cpu);
-        }
-        bluewake_cycle_domain_prepare_dispatch(&g_cycle_domain, cpu);
-        bluewake_turn_entry_begin(&g_turn_entry, cpu, cpu->pc);
-        host_direct_gate_pi();
-    }
-    painter_job_turn_begin(cpu);
-    const int dispatched = g_painter_mod->dispatch(cpu, cpu->pc);
-    host_alias_rel_pc(cpu);
-    painter_job_turn_end(cpu);
-    g_painter_worker_turns++;
-    if (g_painter_force_fp)
-        cpu->msr |= PPC_MSR_FP;
-    // The turn's end, as the main loop's: the executed cycles credited to the clock and the
-    // devices advanced (the retrace the painter's wait sleeps for comes from here). Without it
-    // the idle loop spun on a budget that was never flushed and time stood still.
-    (void)bluewake_cycle_domain_end_turn(&g_cycle_domain, cpu);
-    if (!dispatched) {
-        g_painter_uncovered++;
-        g_painter_active = false;
-        return;
-    }
-    if (cpu->exception == 0u)
-        return;
-    if (cpu->exception == PPC_EXC_SYSTEM_CALL) {
-        cpu->exception = 0;
-        ppc_rfi(cpu, cpu->pc);
-    } else if (cpu->exception == PPC_EXC_EXTERNAL) {
-        cpu->exception = 0;
-    } else if (cpu->exception == PPC_EXC_FP_UNAVAILABLE) {
-        const BluewakeFpuSwitchResult switch_result = bluewake_fpu_exception_deliver(cpu);
-        g_fpu_switch_counts[switch_result]++;
-        if (switch_result == BLUEWAKE_FPU_SWITCH_INVALID) {
-            g_painter_fatal = "invalid lazy FPU context";
-            g_painter_active = false;
-        }
-    } else {
-        g_painter_active = false;   // the main loop sees the exception as it would and stops
-    }
+static inline void painter_relax(void) {
+#if defined(__x86_64__) || defined(__i386__)
+    __builtin_ia32_pause();
+#elif defined(__aarch64__)
+    __asm__ volatile("yield");
+#endif
 }
 
+// The worker: wait for a dispatch (spinning a while, then asleep), run it on the painter module
+// with the game thread's floating-point environment, hand the environment and the result back.
 static void* painter_worker_main(void* arg) {
     (void)arg;
+    unsigned long long seen = 0u;
     for (;;) {
-        pthread_mutex_lock(&g_painter_lock);
-        while (g_painter_request != 1)
-            pthread_cond_wait(&g_painter_cv, &g_painter_lock);
-        pthread_mutex_unlock(&g_painter_lock);
-        CPUState* cpu = g_painter_cpu;
-        // The host's floating-point rounding is a thread's: arm this thread's from the guest's FPSCR,
-        // as the module does for the thread that loads state (chassis_on_state_loaded).
-        ppc_fpscr_updated(cpu);
-        bool first = true;
-        unsigned traced = 0u;
-        while (g_painter_active) {
-            const u32 pc = cpu->pc;
-            const s64 before = cpu->downcount;
-            painter_turn_on_worker(cpu, first);
-            if (g_painter_trace && g_painter_handoffs < 2u && traced < 4u) {
-                fprintf(stderr, "[painter] worker turn %u: pc=%08X -> %08X downcount %lld -> %lld budget %lld sp=%08X active=%d\n",
-                        traced, pc, cpu->pc, (long long)before, (long long)cpu->downcount, (long long)cpu->cycle_budget,
-                        cpu->gpr[1], g_painter_active ? 1 : 0);
-                traced++;
+        unsigned spins = 0u;
+        while (atomic_load(&g_painter_go) == seen) {
+            if (++spins < 20000u) {
+                painter_relax();
+                continue;
             }
-            first = false;
+            pthread_mutex_lock(&g_painter_lock);
+            atomic_store(&g_painter_parked, 1);
+            while (atomic_load(&g_painter_go) == seen)
+                pthread_cond_wait(&g_painter_cv, &g_painter_lock);
+            atomic_store(&g_painter_parked, 0);
+            pthread_mutex_unlock(&g_painter_lock);
+            spins = 0u;
         }
-        pthread_mutex_lock(&g_painter_lock);
-        g_painter_request = 2;
-        pthread_cond_broadcast(&g_painter_cv);
-        pthread_mutex_unlock(&g_painter_lock);
+        seen = atomic_load(&g_painter_go);
+        const u64 t0 = painter_now_ns();
+        fesetenv(&g_painter_env);
+        g_painter_result = g_painter_mod->dispatch(g_painter_cpu, g_painter_cpu->pc);
+        fegetenv(&g_painter_env);
+        g_painter_worker_ns += painter_now_ns() - t0;
+        atomic_store(&g_painter_done, seen);
     }
     return NULL;
 }
 
-// The game thread's side: hand the prepared turn to the worker and wait for the span's end.
-// The mutex and the condition carry the CPU state and the guest memory across the threads.
-static int painter_job_dispatch_on_worker(CPUState* cpu) {
+// The game thread's side of one dispatch: hand it over, wait (spinning), take the floating-point
+// environment back. The sequentially consistent go/parked pair cannot lose a wake-up: the worker
+// marks itself parked and tests go again under the lock before it sleeps.
+static int painter_job_dispatch_remote(CPUState* cpu) {
     const u64 t0 = painter_now_ns();
-    pthread_mutex_lock(&g_painter_lock);
+    fegetenv(&g_painter_env);
     g_painter_cpu = cpu;
-    g_painter_request = 1;
-    pthread_cond_broadcast(&g_painter_cv);
-    while (g_painter_request != 2)
-        pthread_cond_wait(&g_painter_cv, &g_painter_lock);
-    g_painter_request = 0;
-    pthread_mutex_unlock(&g_painter_lock);
-    ppc_fpscr_updated(cpu);   // the guest's FPSCR may have changed on the worker: re-arm this thread's rounding
+    const unsigned long long seq = atomic_load(&g_painter_go) + 1u;
+    atomic_store(&g_painter_go, seq);
+    if (atomic_load(&g_painter_parked)) {
+        pthread_mutex_lock(&g_painter_lock);
+        pthread_cond_signal(&g_painter_cv);
+        pthread_mutex_unlock(&g_painter_lock);
+    }
+    while (atomic_load(&g_painter_done) != seq)
+        painter_relax();
+    fesetenv(&g_painter_env);
     g_painter_handoffs++;
-    g_painter_handoff_ns += painter_now_ns() - t0;
-    return 1;
+    g_painter_remote_ns += painter_now_ns() - t0;
+    return g_painter_result;
 }
 
 int main(int argc, char** argv) {
@@ -15424,17 +15382,9 @@ int main(int argc, char** argv) {
         bluewake_turn_entry_begin(&g_turn_entry, &cpu, cpu.pc);
         host_direct_gate_pi(); // the main loop's PE commits change the PI cause
         const StaticRecompModuleDesc* const turn_mod = g_painter_active ? g_painter_mod : mod;
-        int dispatched;
-        if (g_painter_active && g_painter_worker_on) {
-            dispatched = painter_job_dispatch_on_worker(&cpu);
-        } else {
-            painter_job_turn_begin(&cpu);
-            dispatched = turn_mod->dispatch(&cpu, cpu.pc);
-        }
-        if (__builtin_expect(g_painter_fatal != NULL, 0)) {
-            stop_reason = g_painter_fatal;
-            g_painter_fatal = NULL;
-        }
+        painter_job_turn_begin(&cpu);
+        const int dispatched = g_painter_active && g_painter_worker_on ? painter_job_dispatch_remote(&cpu)
+                                                                       : turn_mod->dispatch(&cpu, cpu.pc);
         if (turn_census)
             host_turn_exit_classify(&cpu, dispatched);
         if (return_census_enabled)
