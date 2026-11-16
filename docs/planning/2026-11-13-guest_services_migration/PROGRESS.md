@@ -1,6 +1,6 @@
 # PROGRESS — Guest services migration
 
-Status: **Closed by the owner (2026-11-14).** M1-T03 stage A is done and exact (the painter on a worker thread costs 2.7 %; its span is ≈ 21 % of the frame's host time); cycle-exact stage B looks infeasible (≈ 9 interrupts a frame in the execute window, placed by the painter's unknown length), and the owner chose not to pursue a non-exact "plays the same" job or the audio thread (M3). PRs #11–#13 stay drafts on the fork. Raw traces and superseded builds were deleted the same day; reports and run logs are kept.  
+Status: **Closed by the owner (2026-11-14).** M1-T03 stage A is done and exact (the painter on a worker thread costs 2.7 %; its span is ≈ 21 % of the frame's host time); cycle-exact stage B looks infeasible (≈ 9 interrupts a frame in the execute window, placed by the painter's unknown length), and the owner chose not to pursue a non-exact "plays the same" job or the audio thread (M3). PRs #9 and #11–#13 were closed unmerged on the fork on 2026-11-15; their branches stay as the record. Raw traces were deleted on 2026-11-14 and every build folder and artifact of this line on 2026-11-15; reports and run logs are kept.  
 [Product brief](PRD.md) · [Technical plan](TECH_PLAN.md)
 
 ## Milestones
